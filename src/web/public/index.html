@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Canvas CLI - Web Dashboard</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root {
+      --bg-primary: #1a1b26;
+      --bg-secondary: #24283b;
+      --bg-tertiary: #364a82;
+      --text-primary: #c0caf5;
+      --text-secondary: #a9b1d6;
+      --text-dim: #565f89;
+      --accent: #7aa2f7;
+      --success: #9ece6a;
+      --error: #f7768e;
+      --warning: #e0af68;
+    }
+
+    [data-theme="light"] {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --bg-tertiary: #e0e0e0;
+      --text-primary: #24292e;
+      --text-secondary: #586069;
+      --text-dim: #6a737d;
+      --accent: #0366d6;
+      --success: #28a745;
+      --error: #d73a49;
+      --warning: #ffd33d;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      background: var(--bg-secondary);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--bg-tertiary);
+    }
+
+    .logo {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: var(--accent);
+    }
+
+    .status {
+      display: flex;
+      gap: 2rem;
+      align-items: center;
+    }
+
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .status-indicator {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--success);
+    }
+
+    .main-container {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      width: 250px;
+      background: var(--bg-secondary);
+      padding: 1rem;
+      overflow-y: auto;
+      border-right: 1px solid var(--bg-tertiary);
+    }
+
+    .sidebar h3 {
+      color: var(--text-secondary);
+      margin-bottom: 1rem;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .tool-list, .session-list {
+      list-style: none;
+    }
+
+    .tool-item, .session-item {
+      padding: 0.5rem;
+      margin: 0.25rem 0;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .tool-item:hover, .session-item:hover {
+      background: var(--bg-tertiary);
+    }
+
+    .chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .message {
+      max-width: 70%;
+      padding: 1rem;
+      border-radius: 8px;
+      animation: fadeIn 0.3s;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: var(--bg-tertiary);
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      background: var(--bg-secondary);
+      border: 1px solid var(--bg-tertiary);
+    }
+
+    .message.tool {
+      align-self: center;
+      background: var(--bg-secondary);
+      border-left: 3px solid var(--accent);
+      width: 90%;
+    }
+
+    .message-meta {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-bottom: 0.5rem;
+    }
+
+    .message-content {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .input-area {
+      padding: 1.5rem;
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--bg-tertiary);
+    }
+
+    .input-wrapper {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .message-input {
+      flex: 1;
+      padding: 0.75rem;
+      background: var(--bg-primary);
+      border: 1px solid var(--bg-tertiary);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-family: inherit;
+      resize: vertical;
+      min-height: 50px;
+    }
+
+    .message-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .send-button {
+      padding: 0.75rem 1.5rem;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: opacity 0.2s;
+    }
+
+    .send-button:hover {
+      opacity: 0.9;
+    }
+
+    .send-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .right-panel {
+      width: 300px;
+      background: var(--bg-secondary);
+      padding: 1rem;
+      border-left: 1px solid var(--bg-tertiary);
+      overflow-y: auto;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .stat-card {
+      background: var(--bg-primary);
+      padding: 1rem;
+      border-radius: 4px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: var(--accent);
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 0.25rem;
+    }
+
+    .controls {
+      margin-top: 2rem;
+    }
+
+    .control-button {
+      width: 100%;
+      padding: 0.75rem;
+      margin: 0.5rem 0;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      border: 1px solid var(--bg-tertiary);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .control-button:hover {
+      background: var(--bg-tertiary);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .typing-indicator {
+      display: none;
+      align-self: flex-start;
+      padding: 1rem;
+      color: var(--text-dim);
+    }
+
+    .typing-indicator.active {
+      display: block;
+    }
+
+    .typing-indicator::after {
+      content: '...';
+      animation: typing 1.5s infinite;
+    }
+
+    @keyframes typing {
+      0% { content: '.'; }
+      33% { content: '..'; }
+      66% { content: '...'; }
+    }
+
+    /* Mobile responsive */
+    @media (max-width: 768px) {
+      .sidebar, .right-panel {
+        display: none;
+      }
+      
+      .message {
+        max-width: 90%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">🎨 Canvas CLI</div>
+    <div class="status">
+      <div class="status-item">
+        <span class="status-indicator" id="connectionStatus"></span>
+        <span id="connectionText">Connected</span>
+      </div>
+      <div class="status-item">
+        <span>Model:</span>
+        <span id="activeModel">llama2</span>
+      </div>
+      <div class="status-item">
+        <button onclick="toggleTheme()">🌙</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="main-container">
+    <aside class="sidebar">
+      <h3>Tools</h3>
+      <ul class="tool-list" id="toolList"></ul>
+      
+      <h3 style="margin-top: 2rem;">Sessions</h3>
+      <ul class="session-list" id="sessionList"></ul>
+    </aside>
+
+    <div class="chat-container">
+      <div class="messages" id="messages"></div>
+      
+      <div class="typing-indicator" id="typingIndicator">Canvas is typing</div>
+      
+      <div class="input-area">
+        <div class="input-wrapper">
+          <textarea 
+            class="message-input" 
+            id="messageInput" 
+            placeholder="Type your message or use / for commands..."
+            onkeydown="handleKeyPress(event)"
+          ></textarea>
+          <button class="send-button" id="sendButton" onclick="sendMessage()">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <aside class="right-panel">
+      <h3>Statistics</h3>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="tokenCount">0</div>
+          <div class="stat-label">Tokens</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="messageCount">0</div>
+          <div class="stat-label">Messages</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="sessionTime">00:00</div>
+          <div class="stat-label">Duration</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="toolCalls">0</div>
+          <div class="stat-label">Tool Calls</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <h3>Actions</h3>
+        <button class="control-button" onclick="clearChat()">Clear Chat</button>
+        <button class="control-button" onclick="saveSession()">Save Session</button>
+        <button class="control-button" onclick="loadSession()">Load Session</button>
+        <button class="control-button" onclick="exportChat()">Export Chat</button>
+        <button class="control-button" onclick="showSettings()">Settings</button>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const socket = io();
+    let currentSession = null;
+    let messageHistory = [];
+    let stats = {
+      tokens: 0,
+      messages: 0,
+      toolCalls: 0,
+      startTime: Date.now()
+    };
+
+    // Initialize
+    window.addEventListener('load', () => {
+      connectSocket();
+      loadTools();
+      loadSessions();
+      updateStats();
+      setInterval(updateSessionTime, 1000);
+    });
+
+    function connectSocket() {
+      socket.on('connect', () => {
+        document.getElementById('connectionStatus').style.background = 'var(--success)';
+        document.getElementById('connectionText').textContent = 'Connected';
+        console.log('Connected to Canvas CLI server');
+      });
+
+      socket.on('disconnect', () => {
+        document.getElementById('connectionStatus').style.background = 'var(--error)';
+        document.getElementById('connectionText').textContent = 'Disconnected';
+      });
+
+      socket.on('chat:response', (data) => {
+        hideTypingIndicator();
+        addMessage('assistant', data.content);
+        stats.tokens += data.tokens || 0;
+        updateStats();
+      });
+
+      socket.on('tool:start', (data) => {
+        addMessage('tool', `Executing tool: ${data.name}`, 'tool-start');
+      });
+
+      socket.on('tool:result', (data) => {
+        const status = data.success ? '✓' : '✗';
+        const content = data.success ? 
+          `${status} ${data.name} completed` : 
+          `${status} ${data.name} failed: ${data.error}`;
+        addMessage('tool', content, data.success ? 'tool-success' : 'tool-error');
+        stats.toolCalls++;
+        updateStats();
+      });
+    }
+
+    function loadTools() {
+      fetch('/api/tools')
+        .then(res => res.json())
+        .then(tools => {
+          const toolList = document.getElementById('toolList');
+          toolList.innerHTML = tools.map(tool => 
+            `<li class="tool-item" onclick="executeTool('${tool.name}')">
+              🔧 ${tool.name}
+            </li>`
+          ).join('');
+        });
+    }
+
+    function loadSessions() {
+      fetch('/api/sessions')
+        .then(res => res.json())
+        .then(sessions => {
+          const sessionList = document.getElementById('sessionList');
+          sessionList.innerHTML = sessions.map(session => 
+            `<li class="session-item" onclick="switchSession('${session.id}')">
+              📁 Session ${session.id.slice(0, 8)}
+              <br><small>${session.messages} messages</small>
+            </li>`
+          ).join('');
+        });
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('messageInput');
+      const message = input.value.trim();
+      
+      if (!message) return;
+      
+      // Add user message
+      addMessage('user', message);
+      
+      // Show typing indicator
+      showTypingIndicator();
+      
+      // Send to server
+      socket.emit('chat:message', {
+        message: message,
+        model: document.getElementById('activeModel').textContent
+      });
+      
+      // Clear input
+      input.value = '';
+      stats.messages++;
+      updateStats();
+    }
+
+    function addMessage(role, content, className = '') {
+      const messagesContainer = document.getElementById('messages');
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${role} ${className}`;
+      
+      const timestamp = new Date().toLocaleTimeString();
+      messageDiv.innerHTML = `
+        <div class="message-meta">${role} • ${timestamp}</div>
+        <div class="message-content">${escapeHtml(content)}</div>
+      `;
+      
+      messagesContainer.appendChild(messageDiv);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      
+      // Store in history
+      messageHistory.push({ role, content, timestamp });
+    }
+
+    function handleKeyPress(event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    }
+
+    function showTypingIndicator() {
+      document.getElementById('typingIndicator').classList.add('active');
+    }
+
+    function hideTypingIndicator() {
+      document.getElementById('typingIndicator').classList.remove('active');
+    }
+
+    function toggleTheme() {
+      const html = document.documentElement;
+      const currentTheme = html.getAttribute('data-theme');
+      html.setAttribute('data-theme', currentTheme === 'dark' ? 'light' : 'dark');
+    }
+
+    function clearChat() {
+      if (confirm('Clear all messages?')) {
+        document.getElementById('messages').innerHTML = '';
+        messageHistory = [];
+        stats.messages = 0;
+        stats.tokens = 0;
+        updateStats();
+      }
+    }
+
+    function saveSession() {
+      const tag = prompt('Enter a tag for this session:');
+      if (tag) {
+        socket.emit('session:save', { tag });
+      }
+    }
+
+    function loadSession() {
+      // This would open a modal to select a session
+      console.log('Load session dialog');
+    }
+
+    function exportChat() {
+      const content = messageHistory.map(m => 
+        `[${m.timestamp}] ${m.role}: ${m.content}`
+      ).join('\n\n');
+      
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `canvas-chat-${Date.now()}.txt`;
+      a.click();
+    }
+
+    function executeTool(toolName) {
+      // This would open a modal to configure tool parameters
+      console.log('Execute tool:', toolName);
+    }
+
+    function updateStats() {
+      document.getElementById('tokenCount').textContent = stats.tokens;
+      document.getElementById('messageCount').textContent = stats.messages;
+      document.getElementById('toolCalls').textContent = stats.toolCalls;
+    }
+
+    function updateSessionTime() {
+      const elapsed = Date.now() - stats.startTime;
+      const minutes = Math.floor(elapsed / 60000);
+      const seconds = Math.floor((elapsed % 60000) / 1000);
+      document.getElementById('sessionTime').textContent = 
+        `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function showSettings() {
+      // This would open a settings modal
+      console.log('Show settings');
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(node:*)",
+      "Bash(canvas --help)",
+      "Bash(canvas interactive)",
+      "Bash(npm uninstall:*)",
+      "Bash(npm link:*)",
+      "Bash(canvas chat)",
+      "Bash(where canvas)",
+      "Bash(move:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
