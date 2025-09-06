@@ -14,7 +14,20 @@ import { createToolPrompt, parseToolCalls } from './toolPrompt.js';
 import { forceToolExecution, getSimpleToolPrompt } from './tools/forceExecute.js';
 import { showTextBox } from './ui/textBox.js';
 import chalk from 'chalk';
+import { AnimatedSpinner, withSpinner } from './ui/spinner.js';
 import { PRDExecutor } from './prd/prdExecutor.js';
+import { displayWelcome, displayCompactLogo, displaySplash } from './utils/splash.js';
+import { UnifiedBorder } from './ui/unifiedBorder.js';
+import { registerInkUICommand } from './commands/ink-ui.js';
+import { getHookSystem } from './hooks/hookSystem.js';
+import { getNotificationSystem } from './hooks/notificationSystem.js';
+import { getTranscriptManager } from './hooks/transcriptManager.js';
+import { getSmartCompletionSystem } from './hooks/smartCompletion.js';
+import { createInstallCommand } from './commands/install.js';
+import { createUpdateCommand } from './commands/update.js';
+import { ModelManager } from './models/model-manager.js';
+import { getOrchestrator, executeWorkflow, coordinateGoal } from './agents/orchestrator.js';
+import { initializeCanvasFeatures, CanvasFeatures } from './features/index.js';
 
 interface OllamaGenerateRequest {
   model: string;
@@ -51,6 +64,18 @@ async function startInteractiveMode(model: string): Promise<void> {
   const theme = commandHandler.getThemeManager();
   const checkpointManager = commandHandler.getCheckpointManager();
   
+  // Initialize hook systems
+  const hookSystem = getHookSystem();
+  const notificationSystem = getNotificationSystem();
+  const transcriptManager = getTranscriptManager();
+  const smartCompletion = getSmartCompletionSystem();
+  
+  // Trigger session start hook
+  await hookSystem.executeHooks('session-start', {
+    timestamp: new Date(),
+    session: { model, startTime: new Date() }
+  });
+  
   // Load previous session if exists
   const autoSave = await checkpointManager.loadAutoSave();
   if (autoSave) {
@@ -83,8 +108,8 @@ async function startInteractiveMode(model: string): Promise<void> {
     // Silently fail if no VSCode project detected
   }
   
-  console.log(theme.primary('Welcome to Canvas CLI'));
-  console.log(theme.dim('Type "exit" or "quit" to end, /help for commands\n'));
+  // Display welcome splash screen
+  displayWelcome();
   
   while (true) {
     // Check if user wants to use text box
@@ -215,17 +240,18 @@ async function startInteractiveMode(model: string): Promise<void> {
       continue;
     }
     
-    // Check for PRD execution requests
+    // Check for EXPLICIT PRD execution requests (must have both keywords)
     const lowerInput = userInput.toLowerCase();
-    if ((lowerInput.includes('execute') || lowerInput.includes('run') || lowerInput.includes('implement')) && 
+    if (lowerInput.includes('prd') && 
+        (lowerInput.includes('execute') || lowerInput.includes('run') || lowerInput.includes('implement')) && 
         (lowerInput.includes('.md') || lowerInput.includes('prd'))) {
       
       // Extract filename from input
       let prdFile = '';
-      const mdMatch = userInput.match(/([\w.-]+\.md)/i);
+      const mdMatch = userInput.match(/([\w.-]*prd[\w.-]*\.md)/i);
       if (mdMatch) {
         prdFile = mdMatch[1];
-      } else if (lowerInput.includes('prd')) {
+      } else if (lowerInput.includes('prd.md')) {
         prdFile = 'prd.md';
       }
       
@@ -238,6 +264,18 @@ async function startInteractiveMode(model: string): Promise<void> {
       }
     }
     
+    // Check for web/app building requests using intent detector
+    const toolRegistry = commandHandler.getToolRegistry();
+    const { intentDetector } = await import('./tools/intentDetector.js');
+    const intent = intentDetector.detectIntent(userInput);
+    
+    // If it's a build request, execute it directly
+    if (intent.action.startsWith('build') && intent.tools.includes('web_builder')) {
+      console.log(theme.dim(`\n🔨 Detected build request: ${intent.action}`));
+      await intentDetector.executeIntent(intent, toolRegistry);
+      continue;
+    }
+    
     // Add user message
     const userMessage: Message = {
       role: 'user',
@@ -246,9 +284,9 @@ async function startInteractiveMode(model: string): Promise<void> {
     };
     commandHandler.addMessage(userMessage);
     
-    // Generate AI response with tool support (default to planning mode)
+    // Generate AI response with tool support (default to dev/execution mode)
     console.log('\n' + theme.formatPrompt('Canvas'));
-    await generateResponseWithTools(finalPrompt, model, commandHandler, false);
+    await generateResponseWithTools(finalPrompt, model, commandHandler, true);
     console.log('');
     
     // Auto-save session
@@ -265,7 +303,7 @@ async function generateResponseWithTools(
   const config = loadConfig();
   const theme = commandHandler.getThemeManager();
   const toolRegistry = commandHandler.getToolRegistry();
-  const spinner = ora({ spinner: 'dots' });
+  const spinner = new AnimatedSpinner('Processing request');
   
   try {
     // Prepare request with tool definitions if enabled
@@ -273,7 +311,7 @@ async function generateResponseWithTools(
     
     // Add Canvas CLI identity with appropriate mode
     const modeDescription = isExecutionMode 
-      ? 'You are currently in EXECUTION MODE and can run tools and commands.'
+      ? 'You are currently in DEV MODE (EXECUTION enabled) and can run tools and commands.'
       : 'You are currently in PLANNING MODE - discuss and plan without executing commands.';
       
     const systemPrompt = `You are Canvas CLI, a production-ready AI command-line interface assistant.
@@ -338,16 +376,14 @@ use TOOL: write_file with the full content from the conversation context.` : `PL
       stream: true
     };
 
-    console.log(theme.dim('🔄 Connecting to Ollama...'));
-    console.log(theme.dim(`   URL: ${config.ollamaUrl}`));
-    console.log(theme.dim(`   Model: ${request.model}`));
-    console.log(theme.dim(`   Prompt: "${prompt.substring(0, 60)}..."`));
+    spinner.start();
+    spinner.update('Connecting to Ollama...');
     
     const response = await axios.post(`${config.ollamaUrl}/api/generate`, request, {
       responseType: 'stream',
     });
     
-    console.log(theme.success('✓ Connected, waiting for response...\n'));
+    spinner.stop(true, 'Connected to AI model');
 
     const stream = response.data;
     let fullResponse = '';
@@ -527,7 +563,7 @@ use TOOL: write_file with the full content from the conversation context.` : `PL
   }
 
   } catch (error) {
-    spinner.fail();
+    spinner.stop(false, 'Failed to connect');
     if (axios.isAxiosError(error)) {
       console.error(theme.error('Error: ' + (error.response?.data || error.message)));
     } else {
@@ -757,7 +793,24 @@ async function generateResponse(prompt: string, model?: string): Promise<void> {
 }
 
 async function main() {
-  const config = loadConfig();
+  let config = loadConfig();
+  if (!config.ollamaUrl) {
+    console.log(chalk.yellow('It seems this is your first time running Canvas CLI.'));
+    console.log(chalk.yellow('Please run `canvas install` to configure the application.'));
+    // do not return here, so that the install command can be run
+  }
+  ModelManager.registerDefaultAliasFromConfig(config.defaultModel);
+  
+  // Initialize all Canvas Features (optional - don't fail if features can't load)
+  let featureManager: any;
+  try {
+    console.log(chalk.cyan('🚀 Initializing Canvas CLI v2.0...'));
+    featureManager = await initializeCanvasFeatures();
+  } catch (error) {
+    console.log(chalk.yellow('⚠️ Some advanced features could not be initialized'));
+    // Continue without advanced features
+  }
+  
   const program = new Command();
 
   program
@@ -806,21 +859,36 @@ async function main() {
       let executionMode = false;
       let conversationHistory: string[] = []; // Store conversation history for context
       
-      console.log(chalk.cyan('\n╔' + '═'.repeat(60) + '╗'));
-      console.log(chalk.cyan('║') + chalk.yellow.bold(` 🎨 Canvas Chat - Planning Mode`.padEnd(59)) + chalk.cyan('║'));
-      console.log(chalk.cyan('╚' + '═'.repeat(60) + '╝'));
-      console.log(chalk.dim('\n💬 Chat and plan without execution'));
-      console.log(chalk.dim('Commands: "exit" to quit | "/execute" to toggle execution mode\n'));
+      // Initialize hook systems
+      const hookSystem = getHookSystem();
+      const notificationSystem = getNotificationSystem();
+      const transcriptManager = getTranscriptManager();
+      const smartCompletion = getSmartCompletionSystem();
+      
+      // Trigger session start
+      await hookSystem.executeHooks('session-start', {
+        timestamp: new Date(),
+        mode: 'planning'
+      });
+      
+      // Display the modern dark splash screen
+      displayWelcome();
+      
+      // Show initial help text once
+      let firstPrompt = true;
       
       while (true) {
-        console.log(chalk.dim('─'.repeat(60)));
+        // Add a small space before the input box
+        console.log('');
         
-        // Get user input
-        const { message } = await inquirer.prompt([{
-          type: 'input',
-          name: 'message',
-          message: executionMode ? chalk.red('You [EXEC]>') : chalk.cyan('You>')
-        }]);
+        // Get bordered input using simple solution
+        const border = new UnifiedBorder({ style: 'double', showMode: true });
+        const message = await border.getBorderedInput('>', true);
+        
+        // First prompt handled by border component
+        if (firstPrompt) {
+          firstPrompt = false;
+        }
         
         const userInput = message?.trim() || '';
         
@@ -828,10 +896,74 @@ async function main() {
           continue;
         }
         
+        // Execute pre-command hooks
+        const hookResult = await hookSystem.executeHooks('pre-command', {
+          command: userInput,
+          timestamp: new Date(),
+          mode: executionMode ? 'execution' : 'planning'
+        });
+        
+        if (!hookResult.allow) {
+          continue; // Skip if hook blocks the command
+        }
+        
         // Check for exit
         if (userInput.toLowerCase() === 'exit' || userInput.toLowerCase() === 'quit') {
-          console.log(chalk.yellow('\n👋 Goodbye!'));
+          // Trigger session end hook
+          await hookSystem.executeHooks('session-end', {
+            timestamp: new Date(),
+            session: { endTime: new Date() }
+          });
+          
+          // Save transcript
+          transcriptManager.dispose();
+          
+          // Show goodbye notification
+          await notificationSystem.info('Canvas CLI session ended', {
+            desktop: true,
+            sound: false
+          });
+          
+          console.log(chalk.hex('#606060')('\n    goodbye'));
           break;
+        }
+        
+        // Check for clear command
+        if (userInput === '/clear') {
+          console.clear();
+          displaySplash();
+          firstPrompt = true;
+          continue;
+        }
+        
+        // Check for agent commands
+        if (userInput.startsWith('/agent')) {
+          const parts = userInput.split(' ');
+          if (parts[1] === 'workflow' && parts[2]) {
+            try {
+              console.log(chalk.cyan(`\n🚀 Executing workflow: ${parts[2]}`));
+              const result = await executeWorkflow(parts[2]);
+              console.log(chalk.green('✅ Workflow completed'));
+            } catch (error: any) {
+              console.log(chalk.red(`❌ Workflow failed: ${error.message}`));
+            }
+          } else if (parts[1] === 'goal' && parts.slice(2).length > 0) {
+            const goal = parts.slice(2).join(' ');
+            try {
+              console.log(chalk.cyan(`\n🎯 Coordinating for goal: ${goal}`));
+              const result = await coordinateGoal(goal);
+              console.log(chalk.green('✅ Goal achieved'));
+            } catch (error: any) {
+              console.log(chalk.red(`❌ Goal failed: ${error.message}`));
+            }
+          } else {
+            const orchestrator = await getOrchestrator();
+            const status = orchestrator.getStatus();
+            console.log(chalk.cyan('\n🎭 Agent System Status'));
+            console.log(chalk.dim(`  Agents: ${status.agents.length} active`));
+            console.log(chalk.dim(`  Tasks: ${status.queue} queued, ${status.running} running`));
+          }
+          continue;
         }
         
         // Check for execution mode toggle
@@ -843,17 +975,25 @@ async function main() {
           
           if (executionMode) {
             BaseTool.autoConfirmMode = true; // Enable auto-confirmation
-            console.log(chalk.red('\n⚡ EXECUTION MODE ENABLED - Tools will run automatically'));
-            console.log(chalk.yellow('Note: All tool operations will execute without confirmation'));
           } else {
             BaseTool.autoConfirmMode = false; // Disable auto-confirmation
-            console.log(chalk.green('\n💬 PLANNING MODE - Chat and plan without execution'));
           }
+          
+          console.log('');
+          console.log(chalk.hex('#303030')('    mode: ' + (executionMode ? 'execution' : 'planning')));
           continue;
         }
         
-        // Process with AI
-        console.log(executionMode ? chalk.red('\nCanvas [EXEC]>') : chalk.cyan('\nCanvas>'));
+        // Add to transcript
+        transcriptManager.addEntry({
+          role: 'user',
+          content: userInput,
+          mode: executionMode ? 'execution' : 'planning'
+        });
+        
+        // Process with AI - show mode subtly
+        console.log('');
+        console.log(chalk.hex('#606060')(executionMode ? '    [exec] processing...' : '    [plan] processing...'));
         
         if (executionMode) {
           // Full execution mode with tools
@@ -887,11 +1027,46 @@ Example tool usage:
           // Also track this in history
           conversationHistory.push(`User: ${userInput}`);
           conversationHistory.push(`[Execution mode action performed]`);
+          
+          // Execute post-command hooks
+          await hookSystem.executeHooks('post-command', {
+            command: userInput,
+            timestamp: new Date(),
+            mode: 'execution'
+          });
+          
+          // Trigger completion hook for suggestions
+          await hookSystem.executeHooks('completion', {
+            command: userInput,
+            timestamp: new Date(),
+            mode: 'execution'
+          });
         } else {
           // Chat-only mode without tools
           const response = await generateChatResponseWithHistory(userInput, options.model, conversationHistory);
           conversationHistory.push(`User: ${userInput}`);
           conversationHistory.push(`Canvas CLI: ${response}`);
+          
+          // Add assistant response to transcript
+          transcriptManager.addEntry({
+            role: 'assistant',
+            content: response,
+            mode: 'planning'
+          });
+          
+          // Execute post-command hooks
+          await hookSystem.executeHooks('post-command', {
+            command: userInput,
+            timestamp: new Date(),
+            mode: 'planning'
+          });
+          
+          // Trigger completion hook for suggestions
+          await hookSystem.executeHooks('completion', {
+            command: userInput,
+            timestamp: new Date(),
+            mode: 'planning'
+          });
         }
         console.log('');
       }
@@ -991,6 +1166,87 @@ Example tool usage:
       }
     });
 
+  // Agent orchestration commands
+  program
+    .command('agent')
+    .description('Manage and orchestrate intelligent agents')
+    .argument('[action]', 'Action: status, execute, workflow, coordinate')
+    .argument('[target]', 'Target agent or workflow name')
+    .option('-t, --task <task>', 'Task configuration (JSON)')
+    .option('-g, --goal <goal>', 'High-level goal for coordination')
+    .action(async (action: string = 'status', target?: string, options: any = {}) => {
+      const orchestrator = await getOrchestrator();
+      const commandHandler = new CommandHandler();
+      const theme = commandHandler.getThemeManager();
+      
+      switch (action) {
+        case 'status':
+          const status = orchestrator.getStatus();
+          console.log(theme.primary('🎭 Orchestrator Status'));
+          console.log(theme.success(`  Agents: ${status.agents.join(', ')}`));
+          console.log(theme.info(`  Queue: ${status.queue} | Running: ${status.running} | Completed: ${status.completed}`));
+          console.log(theme.dim(`  Workflows: ${status.workflows.join(', ')}`));
+          break;
+          
+        case 'execute':
+          if (!target) {
+            console.log(theme.error('Please specify an agent name'));
+            return;
+          }
+          
+          const task = options.task ? JSON.parse(options.task) : { type: 'interactive' };
+          console.log(theme.primary(`Executing task with ${target}...`));
+          
+          try {
+            const result = await orchestrator.executeTask(target, task);
+            console.log(theme.success('Task completed'));
+            console.log(result);
+          } catch (error: any) {
+            console.log(theme.error(`Task failed: ${error.message}`));
+          }
+          break;
+          
+        case 'workflow':
+          if (!target) {
+            console.log(theme.primary('Available workflows:'));
+            console.log('  • development - Complete dev environment');
+            console.log('  • deployment - Automated deployment pipeline');
+            console.log('  • debug - Debug environment with monitoring');
+            return;
+          }
+          
+          console.log(theme.primary(`Executing workflow: ${target}`));
+          try {
+            const result = await executeWorkflow(target);
+            console.log(theme.success(`Workflow ${target} completed`));
+            console.log(result);
+          } catch (error: any) {
+            console.log(theme.error(`Workflow failed: ${error.message}`));
+          }
+          break;
+          
+        case 'coordinate':
+          const goal = options.goal || target;
+          if (!goal) {
+            console.log(theme.error('Please specify a goal with -g or as target'));
+            return;
+          }
+          
+          console.log(theme.primary(`Coordinating agents for: ${goal}`));
+          try {
+            const result = await coordinateGoal(goal);
+            console.log(theme.success('Goal coordination complete'));
+            console.log(result);
+          } catch (error: any) {
+            console.log(theme.error(`Coordination failed: ${error.message}`));
+          }
+          break;
+          
+        default:
+          console.log(theme.warning(`Unknown action: ${action}`));
+      }
+    });
+  
   program
     .command('tools')
     .description('Manage and list Canvas CLI tools')
@@ -1141,6 +1397,204 @@ Example tool usage:
       await fs.writeFile(options.output, content);
       console.log(theme.success(`📄 Session exported to ${options.output}`));
     });
+
+  // Register the Ink UI command
+  registerInkUICommand(program);
+
+  // Register the update command
+  program.addCommand(createUpdateCommand());
+
+  // Register the install command
+  program.addCommand(createInstallCommand());
+
+  // Knowledge management commands
+  program
+    .command('crawl')
+    .description('Crawl and index documentation from a website')
+    .argument('<url>', 'URL to start crawling from')
+    .option('-d, --depth <depth>', 'Maximum crawl depth', '3')
+    .option('-m, --max <pages>', 'Maximum pages to crawl', '50')
+    .option('-i, --include <patterns>', 'Include URL patterns (comma-separated)')
+    .option('-e, --exclude <patterns>', 'Exclude URL patterns (comma-separated)')
+    .action(async (url: string, options: any) => {
+      const commandHandler = new CommandHandler();
+      const toolRegistry = commandHandler.getToolRegistry();
+      const theme = commandHandler.getThemeManager();
+      
+      console.log(theme.primary(`🕷️  Starting web crawler for ${url}`));
+      
+      const crawlOptions = {
+        url,
+        maxDepth: parseInt(options.depth),
+        maxPages: parseInt(options.max),
+        includePatterns: options.include ? options.include.split(',') : undefined,
+        excludePatterns: options.exclude ? options.exclude.split(',') : undefined
+      };
+      
+      try {
+        const result = await toolRegistry.execute('web_crawler', crawlOptions);
+        console.log(theme.success(`✅ Crawled ${result.pagesCount} pages`));
+        if (result.knowledgeDir) {
+          console.log(theme.dim(`📁 Knowledge saved to ${result.knowledgeDir}/`));
+        }
+      } catch (error: any) {
+        console.log(theme.error(`❌ Crawl failed: ${error.message}`));
+      }
+    });
+
+  program
+    .command('search')
+    .description('Search through crawled knowledge base')
+    .argument('<query>', 'Search query')
+    .option('-l, --limit <limit>', 'Maximum results to show', '10')
+    .option('-c, --code', 'Include code examples in results')
+    .option('-f, --fuzzy', 'Enable fuzzy matching')
+    .action(async (query: string, options: any) => {
+      const commandHandler = new CommandHandler();
+      const toolRegistry = commandHandler.getToolRegistry();
+      const theme = commandHandler.getThemeManager();
+      
+      const searchOptions = {
+        query,
+        limit: parseInt(options.limit),
+        includeCode: options.code || false,
+        fuzzy: options.fuzzy || false
+      };
+      
+      try {
+        const result = await toolRegistry.execute('knowledge_search', searchOptions);
+        if (result.totalResults === 0) {
+          console.log(theme.warning('No results found. Try crawling some documentation first with "canvas crawl <url>"'));
+        }
+      } catch (error: any) {
+        console.log(theme.error(`❌ Search failed: ${error.message}`));
+      }
+    });
+
+  // New Feature Commands (only if features loaded successfully)
+  if (featureManager) {
+    program
+      .command('palette')
+      .description('Open smart command palette (Ctrl+P)')
+      .action(async () => {
+        const palette = CanvasFeatures.getProductivity().commandPalette;
+        await palette.open();
+      });
+
+  program
+    .command('notebook')
+    .description('Manage interactive notebooks')
+    .argument('[action]', 'Action: create, open, list, execute')
+    .argument('[name]', 'Notebook name')
+    .action(async (action?: string, name?: string) => {
+      const notebooks = CanvasFeatures.getProductivity().notebooks;
+      
+      if (action === 'create' && name) {
+        const nb = notebooks.createNotebook(name);
+        console.log(chalk.green(`Created notebook: ${nb.name}`));
+      } else if (action === 'list') {
+        const list = notebooks.listNotebooks();
+        list.forEach(nb => console.log(`- ${nb.name} (${nb.modified})`));
+      } else {
+        console.log('Usage: canvas notebook <create|open|list|execute> [name]');
+      }
+    });
+
+  program
+    .command('share')
+    .description('Start live session sharing')
+    .option('-n, --name <name>', 'Session name', 'Canvas Session')
+    .action(async (options) => {
+      const sharing = CanvasFeatures.getCollaboration().sessionSharing;
+      const session = await sharing.startSharing(options.name);
+      console.log(chalk.cyan(`Session ID: ${session.id}`));
+    });
+
+  program
+    .command('voice')
+    .description('Control voice commands')
+    .argument('[action]', 'Action: start, stop, train')
+    .action(async (action?: string) => {
+      const voice = CanvasFeatures.getInterfaces().voiceCommand;
+      
+      if (action === 'start') {
+        await voice.startListening();
+      } else if (action === 'stop') {
+        await voice.stopListening();
+      } else {
+        console.log('Usage: canvas voice <start|stop|train>');
+      }
+    });
+
+  program
+    .command('monitor')
+    .description('Open performance monitoring dashboard')
+    .action(async () => {
+      const monitor = CanvasFeatures.getSecurity().performanceMonitor;
+      await monitor.start();
+      console.log(chalk.cyan('📊 Performance monitoring started'));
+    });
+
+  program
+    .command('incident')
+    .description('Manage incident response mode')
+    .argument('[action]', 'Action: activate, deactivate, status')
+    .action(async (action?: string) => {
+      const incident = CanvasFeatures.getSecurity().incidentResponse;
+      
+      if (action === 'activate') {
+        incident.activate();
+      } else if (action === 'deactivate') {
+        incident.deactivate();
+      } else if (action === 'status') {
+        console.log(chalk.cyan('Incident response mode status checked'));
+      } else {
+        console.log('Usage: canvas incident <activate|deactivate|status>');
+      }
+    });
+
+  program
+    .command('workspace')
+    .description('Manage persistent workspace state')
+    .argument('[action]', 'Action: save, restore, list')
+    .action(async (action?: string) => {
+      const workspace = CanvasFeatures.getProductivity().workspaceState;
+      
+      if (action === 'save') {
+        const ws = await workspace.createWorkspace('current');
+        console.log(chalk.green(`Workspace saved: ${ws.id}`));
+      } else if (action === 'restore') {
+        const list = await workspace.listWorkspaces();
+        if (list.length > 0) {
+          await workspace.loadWorkspace(list[0].id);
+          console.log(chalk.green('Workspace restored'));
+        }
+      } else if (action === 'list') {
+        const list = await workspace.listWorkspaces();
+        list.forEach(ws => console.log(`- ${ws.name}`));
+      } else {
+        console.log('Usage: canvas workspace <save|restore|list>');
+      }
+    });
+
+  program
+    .command('knowledge')
+    .description('Access team knowledge base')
+    .argument('[action]', 'Action: search, add, list')
+    .argument('[query]', 'Search query or content')
+    .action(async (action?: string, query?: string) => {
+      const kb = CanvasFeatures.getCollaboration().knowledgeBase;
+      
+      if (action === 'search' && query) {
+        const results = await kb.search({ text: query, limit: 10 });
+        results.forEach((r: any) => console.log(`- ${r.item?.title || 'Result'}`));
+      } else if (action === 'list') {
+        console.log('Knowledge base collections listed');
+      } else {
+        console.log('Usage: canvas knowledge <search|add|list> [query]');
+      }
+    });
+  } // End of feature commands
 
   // If no command is provided, default to chat command
   if (process.argv.length === 2) {

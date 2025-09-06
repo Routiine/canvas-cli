@@ -4,6 +4,7 @@ import { errorHandler } from '../utils/error-handler.js';
 import { performanceConfig } from '../config/performance.js';
 import { TokenCounter, formatTokenCount } from '../utils/token-counter.js';
 import { StreamingHandler } from '../utils/streaming-handler.js';
+import { loadConfig } from '../config.js';
 
 export interface HeadlessOptions {
   prompt: string;
@@ -39,8 +40,9 @@ export class HeadlessMode extends EventEmitter {
 
   constructor(private options: HeadlessOptions) {
     super();
-    this.tokenCounter = new TokenCounter(options.model || 'gpt-4');
-    this.streamingHandler = new StreamingHandler(options.model || 'gpt-4');
+    const config = loadConfig();
+    this.tokenCounter = new TokenCounter(options.model || config.defaultModel);
+    this.streamingHandler = new StreamingHandler(options.model || config.defaultModel);
     
     // Configure for headless mode
     this.configureHeadlessEnvironment();

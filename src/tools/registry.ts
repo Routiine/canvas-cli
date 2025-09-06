@@ -64,6 +64,11 @@ import {
   ToolIntrospector, 
   SelfImprovementTool 
 } from './dynamicToolCreator.js';
+import { WebBuilderTool } from './webBuilder.js';
+import { WebCrawlerTool } from './webCrawler.js';
+import { KnowledgeSearchTool } from './knowledgeSearch.js';
+import { NaturalExecutor } from './naturalExecutor.js';
+import { cliIntegrations } from './cliIntegrations.js';
 
 export class ToolRegistry {
   private tools: Map<string, Tool> = new Map();
@@ -142,7 +147,7 @@ export class ToolRegistry {
     // Smart context management
     this.register(new SmartContextTool());
 
-    // Gemini CLI equivalent tools
+    // Multi-file operation tools
     this.register(new ReadManyFilesTool());
     this.register(new GlobTool());
     this.register(new MultiEditTool());
@@ -150,6 +155,28 @@ export class ToolRegistry {
 
     // MCP integration
     this.register(new MCPTool());
+
+    // Web/App Builder tool
+    this.register(new WebBuilderTool());
+
+    // Knowledge management tools
+    this.register(new WebCrawlerTool());
+    this.register(new KnowledgeSearchTool());
+
+    // Natural language execution
+    this.register(new NaturalExecutor());
+    
+    // Register CLI integrations
+    this.register(new cliIntegrations.fzf());
+    this.register(new cliIntegrations.bpytop());
+    this.register(new cliIntegrations.tmux());
+    this.register(new cliIntegrations.lazygit());
+    this.register(new cliIntegrations.gh());
+    this.register(new cliIntegrations.entr());
+    this.register(new cliIntegrations.just());
+    this.register(new cliIntegrations.taskwarrior());
+    this.register(new cliIntegrations.tldr());
+    this.register(new cliIntegrations.pet());
 
     // Enable all tools by default
     this.tools.forEach((_, name) => this.enabledTools.add(name));

@@ -1,3 +1,4 @@
+import { loadConfig } from '../config.js';
 import { EventEmitter } from 'events';
 import { TokenCounter, formatTokenCount } from './token-counter.js';
 

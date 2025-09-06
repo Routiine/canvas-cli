@@ -7,7 +7,7 @@ const CONFIG_DIR = path.join(os.homedir(), '.canvas-cli');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 const defaultConfig: Config = {
-  ollamaUrl: process.env.OLLAMA_URL || 'http://192.168.12.236:8082',
+  ollamaUrl: process.env.OLLAMA_URL || '',
   defaultModel: process.env.OLLAMA_MODEL || 'llama3.2:latest',
   theme: 'default',
   vimMode: false,

@@ -1,7 +1,6 @@
 import { BaseTool } from './base.js';
 import sharp from 'sharp';
-// Lazy load pdf-parse to avoid startup error
-let pdfParse: any = null;
+import { parsePDF } from '../utils/pdf-loader.js';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
@@ -10,18 +9,6 @@ import exifReader from 'exif-reader';
 import ffmpeg from 'fluent-ffmpeg';
 import { promisify } from 'util';
 
-// Lazy load pdf-parse when needed
-async function getPdfParser() {
-  if (!pdfParse) {
-    try {
-      pdfParse = (await import('pdf-parse')).default;
-    } catch (error) {
-      console.warn('PDF parsing not available:', error);
-      throw new Error('PDF parsing is not available');
-    }
-  }
-  return pdfParse;
-}
 
 export class ImageAnalysisTool extends BaseTool {
   name = 'analyze_image';
@@ -114,16 +101,24 @@ export class PDFProcessingTool extends BaseTool {
     const pdfPath = path.resolve(params.path);
     const dataBuffer = await fs.readFile(pdfPath);
     
-    const pdf = await getPdfParser();
-    const data = await pdf(dataBuffer);
+    const data = await parsePDF(dataBuffer);
+    
+    if (data.error) {
+      return {
+        path: params.path,
+        error: data.error,
+        pages: 0,
+        text: ''
+      };
+    }
     
     const result: any = {
       path: params.path,
-      pages: data.numpages,
-      info: data.info,
-      metadata: data.metadata,
-      text: data.text,
-      version: data.version
+      pages: data.numpages || 0,
+      info: data.info || {},
+      metadata: data.metadata || {},
+      text: data.text || '',
+      version: data.version || ''
     };
 
     // Parse specific page range if requested

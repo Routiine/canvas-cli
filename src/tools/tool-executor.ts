@@ -1,3 +1,4 @@
+import { loadConfig } from '../config.js';
 import { EventEmitter } from 'events';
 import { confirmationService } from '../utils/confirmation-service.js';
 import { errorHandler, CircuitBreaker, withTimeout } from '../utils/error-handler.js';

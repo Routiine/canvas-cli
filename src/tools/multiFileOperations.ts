@@ -5,7 +5,7 @@ import { glob } from 'glob';
 import chalk from 'chalk';
 
 /**
- * Advanced multi-file operations tool that replicates Gemini CLI's read_many_files functionality
+ * Advanced multi-file operations tool for reading multiple files efficiently
  * with enhanced features for Canvas CLI
  */
 export class ReadManyFilesTool extends BaseTool {

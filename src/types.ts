@@ -37,6 +37,7 @@ export interface Message {
   content: string;
   toolCalls?: ToolCall[];
   timestamp?: Date;
+  metadata?: any;
 }
 
 export interface ToolCall {

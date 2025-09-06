@@ -3,6 +3,8 @@
  * Based on goose-cli's global model tracking
  */
 
+import { SUPPORTED_MODELS, getModelById, getRecommendedModels, getBestModelForTask, type ModelSpec } from '../config/supported-models.js';
+
 export interface ModelCapabilities {
   name: string;
   contextLimit: number;
@@ -286,6 +288,13 @@ class ModelManagerSingleton {
     if (!caps) return false;
     
     return Boolean(caps[capability]);
+  }
+
+  /**
+   * Register the default model alias from configuration
+   */
+  registerDefaultAliasFromConfig(defaultModel: string): void {
+    this.registerAlias('default', defaultModel);
   }
 
   /**

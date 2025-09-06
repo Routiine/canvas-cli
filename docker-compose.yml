@@ -1,0 +1,117 @@
+version: '3.8'
+
+services:
+  canvas-cli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: canvas-cli:latest
+    container_name: canvas-cli
+    environment:
+      - NODE_ENV=production
+      - CANVAS_HOME=/home/canvas/.canvas-cli
+      # AI Provider Configuration (optional)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      # Ollama configuration
+      - OLLAMA_HOST=ollama:11434
+    volumes:
+      # Mount local project directory
+      - ./:/workspace:rw
+      # Persist configuration
+      - canvas-config:/home/canvas/.canvas-cli
+      # Share git config (optional)
+      - ~/.gitconfig:/home/canvas/.gitconfig:ro
+      - ~/.ssh:/home/canvas/.ssh:ro
+    networks:
+      - canvas-network
+    depends_on:
+      - ollama
+    stdin_open: true
+    tty: true
+    command: ["chat"]
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: canvas-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - canvas-network
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+        reservations:
+          memory: 8G
+
+  # Optional: PostgreSQL for advanced features
+  postgres:
+    image: postgres:16-alpine
+    container_name: canvas-postgres
+    environment:
+      - POSTGRES_DB=canvas
+      - POSTGRES_USER=canvas
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-canvas123}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - canvas-network
+    ports:
+      - "5432:5432"
+    profiles:
+      - with-db
+
+  # Optional: Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: canvas-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    networks:
+      - canvas-network
+    ports:
+      - "6379:6379"
+    profiles:
+      - with-cache
+
+  # Optional: Web UI
+  canvas-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    image: canvas-web:latest
+    container_name: canvas-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - API_URL=http://canvas-cli:8080
+    networks:
+      - canvas-network
+    depends_on:
+      - canvas-cli
+    profiles:
+      - with-web
+
+networks:
+  canvas-network:
+    driver: bridge
+
+volumes:
+  canvas-config:
+  ollama-models:
+  postgres-data:
+  redis-data:

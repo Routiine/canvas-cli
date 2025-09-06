@@ -1,0 +1,278 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: canvas-cli
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: canvas-config
+  namespace: canvas-cli
+data:
+  config.json: |
+    {
+      "defaultProvider": "ollama",
+      "defaultModel": "llama3.2",
+      "providers": {
+        "ollama": {
+          "enabled": true,
+          "baseUrl": "http://ollama-service:11434"
+        }
+      }
+    }
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: canvas-secrets
+  namespace: canvas-cli
+type: Opaque
+stringData:
+  openai-api-key: ""
+  anthropic-api-key: ""
+  google-api-key: ""
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: canvas-cli
+  namespace: canvas-cli
+  labels:
+    app: canvas-cli
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: canvas-cli
+  template:
+    metadata:
+      labels:
+        app: canvas-cli
+    spec:
+      containers:
+      - name: canvas-cli
+        image: canvas-cli/canvas-cli:latest
+        imagePullPolicy: Always
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: CANVAS_HOME
+          value: "/home/canvas/.canvas-cli"
+        - name: OLLAMA_HOST
+          value: "ollama-service:11434"
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: canvas-secrets
+              key: openai-api-key
+              optional: true
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: canvas-secrets
+              key: anthropic-api-key
+              optional: true
+        volumeMounts:
+        - name: config
+          mountPath: /home/canvas/.canvas-cli
+        - name: workspace
+          mountPath: /workspace
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+        livenessProbe:
+          exec:
+            command:
+            - node
+            - dist/index.js
+            - --version
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - node
+            - dist/index.js
+            - --version
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      volumes:
+      - name: config
+        configMap:
+          name: canvas-config
+      - name: workspace
+        persistentVolumeClaim:
+          claimName: canvas-workspace
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: canvas-workspace
+  namespace: canvas-cli
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ollama
+  namespace: canvas-cli
+  labels:
+    app: ollama
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ollama
+  template:
+    metadata:
+      labels:
+        app: ollama
+    spec:
+      containers:
+      - name: ollama
+        image: ollama/ollama:latest
+        env:
+        - name: OLLAMA_KEEP_ALIVE
+          value: "24h"
+        - name: OLLAMA_HOST
+          value: "0.0.0.0"
+        ports:
+        - containerPort: 11434
+          protocol: TCP
+        volumeMounts:
+        - name: ollama-models
+          mountPath: /root/.ollama
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "2"
+          limits:
+            memory: "32Gi"
+            cpu: "8"
+            nvidia.com/gpu: 1  # Optional: GPU support
+        livenessProbe:
+          httpGet:
+            path: /api/tags
+            port: 11434
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/tags
+            port: 11434
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      volumes:
+      - name: ollama-models
+        persistentVolumeClaim:
+          claimName: ollama-models
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-models
+  namespace: canvas-cli
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ollama-service
+  namespace: canvas-cli
+spec:
+  selector:
+    app: ollama
+  ports:
+    - protocol: TCP
+      port: 11434
+      targetPort: 11434
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: canvas-service
+  namespace: canvas-cli
+spec:
+  selector:
+    app: canvas-cli
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: canvas-ingress
+  namespace: canvas-cli
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+  - hosts:
+    - canvas.example.com
+    secretName: canvas-tls
+  rules:
+  - host: canvas.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: canvas-service
+            port:
+              number: 8080
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: canvas-hpa
+  namespace: canvas-cli
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: canvas-cli
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

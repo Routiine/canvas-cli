@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { loadConfig } from '../config.js';
 
 // Get version from package.json
 const __filename = fileURLToPath(import.meta.url);
@@ -10,8 +11,7 @@ const __dirname = dirname(__filename);
 const packageJson = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf-8'));
 
 /**
- * Enhanced CLI commands based on Gemini CLI architecture
- * with Canvas CLI exclusive features
+ * Canvas CLI command definitions and handlers
  */
 
 /**
@@ -155,7 +155,7 @@ export const helpCommand: CanvasCommand = {
     console.log(chalk.gray('  💡 Feature requests: GitHub Discussions'));
     
     console.log(chalk.magenta.bold('\n🎊 Canvas CLI vs Competitors:'));
-    console.log(chalk.gray('  🥇 More features than Gemini CLI + Claude Code + GitHub Copilot combined'));
+    console.log(chalk.gray('  🥇 Complete feature set with advanced capabilities'));
     console.log(chalk.gray('  🔐 Complete privacy - 100% local operation'));
     console.log(chalk.gray('  💰 Free forever - No subscription costs'));
     console.log(chalk.gray('  ⚡ Unlimited usage - No rate limits'));
@@ -182,7 +182,7 @@ export const aboutCommand: CanvasCommand = {
     console.log(chalk.gray(`  Uptime: ${Math.round(process.uptime())}s`));
 
     console.log(chalk.green.bold('\n🎯 Canvas CLI Advantages:'));
-    console.log(chalk.gray('  🔋 100% Complete Feature Set - Every Gemini CLI feature + enhancements'));
+    console.log(chalk.gray('  🔋 100% Complete Feature Set with all advanced features'));
     console.log(chalk.gray('  🤖 Multi-Model Support - Works with ANY Ollama model'));
     console.log(chalk.gray('  🌊 Parallel Processing - True simultaneous task execution'));
     console.log(chalk.gray('  🌳 Git Tree Planning - Visual project structure and planning'));
@@ -192,8 +192,8 @@ export const aboutCommand: CanvasCommand = {
     console.log(chalk.gray('  ⚡ Workflow Engine - Multi-command automation'));
 
     console.log(chalk.blue.bold('\n🏆 Competitive Comparison:'));
-    console.log(chalk.gray('  vs Gemini CLI: ✅ 100% features + local models + planning'));
-    console.log(chalk.gray('  vs Claude Code: ✅ More tools + multi-model + workflows'));
+    console.log(chalk.gray('  ✅ Local model support with planning capabilities'));
+    console.log(chalk.gray('  ✅ Multi-model support with advanced workflows'));
     console.log(chalk.gray('  vs GitHub Copilot: ✅ CLI interface + local + intelligence'));
     console.log(chalk.gray('  vs ALL: ✅ Only CLI with complete feature parity + enhancements'));
 
@@ -213,7 +213,7 @@ export const aboutCommand: CanvasCommand = {
     console.log(chalk.cyan.bold('\n📜 License & Credits:'));
     console.log(chalk.gray(`  License: ${packageJson.license || 'MIT'}`));
     console.log(chalk.gray('  Built with: TypeScript, Node.js, Ollama'));
-    console.log(chalk.gray('  Architecture: Based on Gemini CLI with Canvas enhancements'));
+    console.log(chalk.gray('  Architecture: Modern CLI with Canvas enhancements'));
     
     console.log(chalk.yellow('\n🌟 Canvas CLI - The only AI CLI you\'ll ever need!'));
   }
@@ -228,60 +228,15 @@ export const settingsCommand: CanvasCommand = {
   action: async () => {
     console.log(chalk.blue('📝 Opening Canvas CLI settings...'));
     
-    const settings = {
-      canvas: {
-        defaultModel: 'gpt-oss:20b',
-        planningMode: true,
-        parallelExecution: true,
-        maxParallelTasks: 4,
-        gitTreeGeneration: true,
-        sentientAnalysis: true
-      },
-      models: {
-        aliases: {
-          code: 'codellama:latest',
-          chat: 'llama3:latest',
-          fast: 'mistral:latest',
-          reasoning: 'mixtral:latest',
-          creative: 'neural-chat:latest'
-        },
-        autoDetect: true,
-        benchmarkOnSwitch: false
-      },
-      memory: {
-        maxSize: '100MB',
-        autoSave: true,
-        compression: true,
-        hierarchical: true
-      },
-      mcp: {
-        autoDiscover: true,
-        trustLevel: 'selective',
-        timeout: 30000,
-        servers: {}
-      },
-      ui: {
-        theme: 'default',
-        animations: true,
-        verbose: false,
-        showProgress: true
-      },
-      workflow: {
-        defaultPipeline: 'dev',
-        parallelExecution: true,
-        failFast: true,
-        retryCount: 3
-      }
-    };
+    const settings = loadConfig();
 
     console.log(chalk.cyan('\n⚙️ Current Settings:'));
     console.log(JSON.stringify(settings, null, 2));
     
     console.log(chalk.yellow('\n💡 To edit settings:'));
-    console.log(chalk.gray('  1. Edit ~/.canvas/config.json'));
-    console.log(chalk.gray('  2. Use /model switch <name> for quick model changes'));
-    console.log(chalk.gray('  3. Use /theme <name> for UI theme changes'));
-    console.log(chalk.gray('  4. Restart Canvas CLI to apply changes'));
+    console.log(chalk.gray('  1. Run `canvas config --model <model_name>`'));
+    console.log(chalk.gray('  2. Manually edit ~/.canvas-cli/config.json'));
+    console.log(chalk.gray('  3. Restart Canvas CLI to apply changes'));
   }
 };
 

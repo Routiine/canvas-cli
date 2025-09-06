@@ -1,0 +1,273 @@
+name: Release Canvas CLI
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 2.0.0)'
+        required: true
+
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build
+        run: npm run build
+      
+      - name: Run tests
+        run: npm test
+      
+      - name: Verify installation
+        run: node scripts/verify-install.js
+
+  build-installers:
+    needs: build-and-test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            installer: msi
+          - os: macos-latest
+            installer: pkg
+          - os: ubuntu-latest
+            installer: deb
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci --production
+      
+      - name: Build application
+        run: npm run build
+      
+      # Windows MSI
+      - name: Build Windows MSI
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd installers/windows
+          ./build.ps1 -Version ${{ github.event.inputs.version || github.ref_name }}
+        shell: pwsh
+      
+      - name: Sign Windows MSI
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        env:
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          echo "${{ secrets.WINDOWS_CERTIFICATE }}" | base64 -d > cert.pfx
+          signtool sign /f cert.pfx /p $CERT_PASSWORD /t http://timestamp.digicert.com installers/windows/output/*.msi
+          rm cert.pfx
+      
+      # macOS PKG
+      - name: Build macOS PKG
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd installers/macos
+          chmod +x build.sh
+          ./build.sh ${{ github.event.inputs.version || github.ref_name }}
+      
+      - name: Sign and notarize macOS PKG
+        if: matrix.os == 'macos-latest' && github.event_name == 'push'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          DEVELOPER_ID: ${{ secrets.APPLE_DEVELOPER_ID }}
+        run: |
+          cd installers/macos/output
+          productsign --sign "Developer ID Installer: $DEVELOPER_ID" \
+            canvas-cli-*.pkg canvas-cli-signed.pkg
+          xcrun notarytool submit canvas-cli-signed.pkg \
+            --apple-id $APPLE_ID \
+            --password $APPLE_PASSWORD \
+            --wait
+      
+      # Linux DEB
+      - name: Build Linux DEB
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cd installers/linux
+          chmod +x build-deb.sh
+          ./build-deb.sh ${{ github.event.inputs.version || github.ref_name }}
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.installer }}
+          path: installers/*/output/*
+          retention-days: 7
+
+  publish-npm:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Build
+        run: npm run build
+      
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-homebrew:
+    needs: [build-and-test, publish-npm]
+    runs-on: macos-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Update Homebrew formula
+        env:
+          HOMEBREW_GITHUB_TOKEN: ${{ secrets.HOMEBREW_GITHUB_TOKEN }}
+        run: |
+          VERSION=${{ github.event.inputs.version || github.ref_name }}
+          VERSION=${VERSION#v}
+          
+          # Calculate SHA256
+          wget https://registry.npmjs.org/canvas-cli/-/canvas-cli-${VERSION}.tgz
+          SHA256=$(shasum -a 256 canvas-cli-${VERSION}.tgz | awk '{print $1}')
+          
+          # Update formula
+          sed -i '' "s/version \".*\"/version \"${VERSION}\"/" homebrew/canvas-cli.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"${SHA256}\"/" homebrew/canvas-cli.rb
+          
+          # Create PR to homebrew-core
+          git config user.name "Canvas CLI Bot"
+          git config user.email "bot@canvas-cli.com"
+          git checkout -b update-canvas-cli-${VERSION}
+          git add homebrew/canvas-cli.rb
+          git commit -m "canvas-cli ${VERSION}"
+          git push origin update-canvas-cli-${VERSION}
+
+  create-release:
+    needs: [build-installers, publish-npm]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Generate release notes
+        id: notes
+        run: |
+          VERSION=${{ github.event.inputs.version || github.ref_name }}
+          echo "# Canvas CLI ${VERSION}" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "## What's New" >> RELEASE_NOTES.md
+          git log --pretty=format:"- %s" $(git describe --tags --abbrev=0)..HEAD >> RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "## Installation" >> RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "### npm" >> RELEASE_NOTES.md
+          echo '```bash' >> RELEASE_NOTES.md
+          echo "npm install -g canvas-cli@${VERSION}" >> RELEASE_NOTES.md
+          echo '```' >> RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "### Homebrew" >> RELEASE_NOTES.md
+          echo '```bash' >> RELEASE_NOTES.md
+          echo "brew upgrade canvas-cli" >> RELEASE_NOTES.md
+          echo '```' >> RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+          echo "### Direct Download" >> RELEASE_NOTES.md
+          echo "Download platform-specific installers from the assets below." >> RELEASE_NOTES.md
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body_path: RELEASE_NOTES.md
+          files: |
+            artifacts/**/*.msi
+            artifacts/**/*.pkg
+            artifacts/**/*.dmg
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/checksums.txt
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-documentation:
+    needs: create-release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Update version in docs
+        run: |
+          VERSION=${{ github.event.inputs.version || github.ref_name }}
+          VERSION=${VERSION#v}
+          
+          # Update version references in documentation
+          find docs -name "*.md" -o -name "*.html" | xargs sed -i "s/canvas-cli@[0-9.]+/canvas-cli@${VERSION}/g"
+          find docs -name "*.md" -o -name "*.html" | xargs sed -i "s/version-[0-9.]+/version-${VERSION}/g"
+      
+      - name: Deploy documentation
+        run: |
+          # Deploy to GitHub Pages or documentation site
+          echo "Deploying documentation for version ${VERSION}"
+
+  notify:
+    needs: create-release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Send Discord notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          VERSION=${{ github.event.inputs.version || github.ref_name }}
+          curl -X POST $DISCORD_WEBHOOK \
+            -H "Content-Type: application/json" \
+            -d "{\"content\": \"🎉 Canvas CLI ${VERSION} has been released! Check it out at https://github.com/canvas-cli/canvas-cli/releases/tag/${VERSION}\"}"
+      
+      - name: Tweet release
+        env:
+          TWITTER_API_KEY: ${{ secrets.TWITTER_API_KEY }}
+          TWITTER_API_SECRET: ${{ secrets.TWITTER_API_SECRET }}
+        run: |
+          VERSION=${{ github.event.inputs.version || github.ref_name }}
+          # Use Twitter API to post announcement
+          echo "Canvas CLI ${VERSION} is now available! 🎨"

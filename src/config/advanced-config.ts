@@ -91,7 +91,6 @@ const ConfigSchema = z.object({
   version: z.string().default('2.0.0'),
   
   // Core settings
-  defaultModel: z.string().default('llama3.2'),
   defaultProvider: z.string().default('ollama'),
   workingDirectory: z.string().default(process.cwd()),
   dataDirectory: z.string().optional(),

@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" 
+           Name="Canvas CLI" 
+           Language="1033" 
+           Version="2.0.0" 
+           Manufacturer="Canvas CLI Team" 
+           UpgradeCode="12345678-1234-1234-1234-123456789012">
+    
+    <Package InstallerVersion="200" 
+             Compressed="yes" 
+             InstallScope="perMachine" 
+             Platform="x64"
+             Description="AI Coding Assistant in Your Terminal"
+             Comments="Production-ready AI CLI with advanced features" />
+    
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Canvas CLI is already installed." />
+    
+    <MediaTemplate EmbedCab="yes" />
+    
+    <!-- Check for Node.js -->
+    <Property Id="NODEJS_INSTALLED">
+      <RegistrySearch Id="NodeJSInstalled" 
+                      Root="HKLM" 
+                      Key="SOFTWARE\Node.js" 
+                      Name="Version" 
+                      Type="raw" />
+    </Property>
+    
+    <Condition Message="Node.js 20.0.0 or higher is required. Please install from https://nodejs.org">
+      <![CDATA[Installed OR NODEJS_INSTALLED]]>
+    </Condition>
+    
+    <!-- Features -->
+    <Feature Id="ProductFeature" Title="Canvas CLI Core" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="EnvironmentVariables" />
+      <ComponentGroupRef Id="StartMenuShortcuts" />
+    </Feature>
+    
+    <Feature Id="VSCodeIntegration" Title="VS Code Integration" Level="1">
+      <ComponentGroupRef Id="VSCodeComponents" />
+    </Feature>
+    
+    <Feature Id="GitHubIntegration" Title="GitHub Integration" Level="1">
+      <ComponentGroupRef Id="GitHubComponents" />
+    </Feature>
+    
+    <!-- Directory Structure -->
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="Canvas CLI">
+          <Directory Id="BinFolder" Name="bin" />
+          <Directory Id="ConfigFolder" Name="config" />
+          <Directory Id="DocsFolder" Name="docs" />
+        </Directory>
+      </Directory>
+      
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Canvas CLI" />
+      </Directory>
+      
+      <Directory Id="LocalAppDataFolder">
+        <Directory Id="CanvasAppData" Name="canvas-cli" />
+      </Directory>
+    </Directory>
+    
+    <!-- Components -->
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+      <Component Id="CanvasExecutable" Guid="*">
+        <File Id="CanvasExe" Source="..\..\dist\canvas.exe" KeyPath="yes">
+          <Shortcut Id="CanvasShortcut" 
+                    Directory="ApplicationProgramsFolder" 
+                    Name="Canvas CLI" 
+                    Description="AI Coding Assistant"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Icon="canvas.ico" 
+                    Advertise="yes" />
+        </File>
+      </Component>
+      
+      <Component Id="NodeModules" Guid="*">
+        <File Id="PackageJson" Source="..\..\package.json" />
+        <File Id="License" Source="..\..\LICENSE" />
+        <File Id="Readme" Source="..\..\README.md" />
+      </Component>
+      
+      <Component Id="DefaultConfig" Guid="*" Directory="ConfigFolder">
+        <File Id="ConfigJson" Source="..\..\config\default.json" />
+      </Component>
+    </ComponentGroup>
+    
+    <!-- Environment Variables -->
+    <ComponentGroup Id="EnvironmentVariables">
+      <Component Id="PathEnvironment" Guid="*" Directory="TARGETDIR">
+        <Environment Id="PATH" 
+                     Name="PATH" 
+                     Value="[INSTALLFOLDER]bin" 
+                     Permanent="yes" 
+                     Part="last" 
+                     Action="set" 
+                     System="yes" />
+      </Component>
+      
+      <Component Id="CanvasHome" Guid="*" Directory="TARGETDIR">
+        <Environment Id="CANVAS_HOME" 
+                     Name="CANVAS_HOME" 
+                     Value="[CanvasAppData]" 
+                     Permanent="yes" 
+                     Action="set" 
+                     System="yes" />
+      </Component>
+    </ComponentGroup>
+    
+    <!-- Start Menu Shortcuts -->
+    <ComponentGroup Id="StartMenuShortcuts" Directory="ApplicationProgramsFolder">
+      <Component Id="ApplicationShortcut" Guid="*">
+        <Shortcut Id="ApplicationStartMenuShortcut"
+                  Name="Canvas CLI"
+                  Description="AI Coding Assistant in Your Terminal"
+                  Target="[INSTALLFOLDER]canvas.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="canvas.ico" />
+        
+        <Shortcut Id="UninstallProduct"
+                  Name="Uninstall Canvas CLI"
+                  Description="Uninstalls Canvas CLI"
+                  Target="[System64Folder]msiexec.exe"
+                  Arguments="/x [ProductCode]" />
+        
+        <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue Root="HKCU" 
+                       Key="Software\CanvasCLI" 
+                       Name="installed" 
+                       Type="integer" 
+                       Value="1" 
+                       KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+    
+    <!-- VS Code Integration -->
+    <ComponentGroup Id="VSCodeComponents" Directory="INSTALLFOLDER">
+      <Component Id="VSCodeExtension" Guid="*">
+        <RegistryKey Root="HKCU" Key="Software\CanvasCLI\VSCode">
+          <RegistryValue Name="IntegrationEnabled" Type="integer" Value="1" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+    
+    <!-- GitHub Integration -->
+    <ComponentGroup Id="GitHubComponents" Directory="INSTALLFOLDER">
+      <Component Id="GitHubCLI" Guid="*">
+        <RegistryKey Root="HKCU" Key="Software\CanvasCLI\GitHub">
+          <RegistryValue Name="IntegrationEnabled" Type="integer" Value="1" KeyPath="yes" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+    
+    <!-- Custom Actions -->
+    <CustomAction Id="InstallNpmPackages" 
+                  Directory="INSTALLFOLDER" 
+                  ExeCommand="npm install --production" 
+                  Execute="deferred" 
+                  Return="check" />
+    
+    <CustomAction Id="InitializeConfig" 
+                  Directory="CanvasAppData" 
+                  ExeCommand="[INSTALLFOLDER]canvas.exe init --silent" 
+                  Execute="deferred" 
+                  Return="ignore" />
+    
+    <InstallExecuteSequence>
+      <Custom Action="InstallNpmPackages" After="InstallFiles">NOT Installed</Custom>
+      <Custom Action="InitializeConfig" After="InstallNpmPackages">NOT Installed</Custom>
+    </InstallExecuteSequence>
+    
+    <!-- Icon -->
+    <Icon Id="canvas.ico" SourceFile="..\..\assets\canvas.ico" />
+    
+    <!-- UI -->
+    <UIRef Id="WixUI_FeatureTree" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+    
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Property Id="WixAppFolder" Value="WixPerMachineFolder" />
+    
+  </Product>
+</Wix>

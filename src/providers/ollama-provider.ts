@@ -69,8 +69,10 @@ export class OllamaProvider extends BaseProvider {
 
   constructor() {
     super();
-    this.baseUrl = 'http://localhost:11434';
-    this.timeout = 30000;
+    // Use configuration from app-config
+    const config = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    this.baseUrl = config;
+    this.timeout = parseInt(process.env.OLLAMA_TIMEOUT || '30000', 10);
   }
 
   getMetadata(): ProviderMetadata {
@@ -112,7 +114,7 @@ export class OllamaProvider extends BaseProvider {
   async initialize(config: ProviderConfig): Promise<void> {
     await super.initialize(config);
     
-    this.baseUrl = this.getConfigValue('baseUrl', 'http://localhost:11434');
+    this.baseUrl = this.getConfigValue('baseUrl');
     this.timeout = parseInt(this.getConfigValue('timeout', '30000'), 10);
     
     // Test connection
@@ -143,7 +145,10 @@ export class OllamaProvider extends BaseProvider {
       throw createProviderError('Ollama provider not configured');
     }
 
-    const model = options.model || this.getMetadata().defaultModel;
+    if (!options.model) {
+      throw createProviderError('Model not specified');
+    }
+    const model = options.model;
     
     try {
       // Build messages array
@@ -226,7 +231,10 @@ export class OllamaProvider extends BaseProvider {
       throw createProviderError('Ollama provider not configured');
     }
 
-    const model = options.model || this.getMetadata().defaultModel;
+    if (!options.model) {
+      throw createProviderError('Model not specified');
+    }
+    const model = options.model;
     
     try {
       // Build messages array
