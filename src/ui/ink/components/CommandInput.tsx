@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Text } from 'ink';
 import TextInput from 'ink-text-input';
-import Gradient from 'ink-gradient';
 
 interface CommandInputProps {
   onSubmit: (value: string) => void;
@@ -24,17 +23,21 @@ export const CommandInput: React.FC<CommandInputProps> = ({
   };
 
   return (
-    <Box borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Gradient name="pastel">
-        <Text bold>▶ </Text>
-      </Gradient>
-      <TextInput
-        value={value}
-        onChange={setValue}
-        onSubmit={handleSubmit}
-        placeholder={isProcessing ? 'Processing...' : placeholder}
-        focus={!isProcessing}
-      />
+    <Box>
+      <Box borderStyle="single" borderColor="cyan" width="100%" paddingX={1}>
+        <Box>
+          <Text color="cyan" bold>{'> '}</Text>
+          <Box width="100%">
+            <TextInput
+              value={value}
+              onChange={setValue}
+              onSubmit={handleSubmit}
+              placeholder={isProcessing ? 'Processing...' : placeholder}
+              focus={!isProcessing}
+            />
+          </Box>
+        </Box>
+      </Box>
     </Box>
   );
 };

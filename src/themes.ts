@@ -66,6 +66,110 @@ export const themes: Record<string, Theme> = {
       text: '#eceff4',
       dim: '#4c566a'
     }
+  },
+  dark: {
+    name: 'Dark',
+    colors: {
+      primary: '#60a5fa',
+      secondary: '#a78bfa',
+      success: '#34d399',
+      error: '#f87171',
+      warning: '#fbbf24',
+      info: '#38bdf8',
+      text: '#e5e7eb',
+      dim: '#6b7280'
+    }
+  },
+  light: {
+    name: 'Light',
+    colors: {
+      primary: '#2563eb',
+      secondary: '#7c3aed',
+      success: '#059669',
+      error: '#dc2626',
+      warning: '#d97706',
+      info: '#0284c7',
+      text: '#111827',
+      dim: '#9ca3af'
+    }
+  },
+  ocean: {
+    name: 'Ocean',
+    colors: {
+      primary: '#06b6d4',
+      secondary: '#0891b2',
+      success: '#10b981',
+      error: '#ef4444',
+      warning: '#f59e0b',
+      info: '#0ea5e9',
+      text: '#e0f2fe',
+      dim: '#0e7490'
+    }
+  },
+  forest: {
+    name: 'Forest',
+    colors: {
+      primary: '#84cc16',
+      secondary: '#65a30d',
+      success: '#22c55e',
+      error: '#dc2626',
+      warning: '#facc15',
+      info: '#06b6d4',
+      text: '#ecfccb',
+      dim: '#4d7c0f'
+    }
+  },
+  sunset: {
+    name: 'Sunset',
+    colors: {
+      primary: '#fb923c',
+      secondary: '#f97316',
+      success: '#10b981',
+      error: '#ef4444',
+      warning: '#fbbf24',
+      info: '#f59e0b',
+      text: '#fff7ed',
+      dim: '#ea580c'
+    }
+  },
+  matrix: {
+    name: 'Matrix',
+    colors: {
+      primary: '#00ff00',
+      secondary: '#00cc00',
+      success: '#00ff00',
+      error: '#ff0000',
+      warning: '#ffff00',
+      info: '#00ffff',
+      text: '#00ff00',
+      dim: '#008800'
+    }
+  },
+  canvas: {
+    name: 'Canvas',
+    colors: {
+      primary: '#00ff88',
+      secondary: '#00ccff',
+      success: '#00ff88',
+      error: '#ff0066',
+      warning: '#ffcc00',
+      info: '#00bbff',
+      text: '#ffffff',
+      dim: '#668899'
+    }
+  },
+  minimal: {
+    name: 'Minimal',
+    colors: {
+      primary: '#ffffff',
+      secondary: '#cccccc',
+      success: '#00ff00',
+      error: '#ff0000',
+      warning: '#ffff00',
+      info: '#0000ff',
+      text: '#ffffff',
+      dim: '#888888'
+    }
   }
 };
 

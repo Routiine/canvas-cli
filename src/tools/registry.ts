@@ -69,6 +69,18 @@ import { WebCrawlerTool } from './webCrawler.js';
 import { KnowledgeSearchTool } from './knowledgeSearch.js';
 import { NaturalExecutor } from './naturalExecutor.js';
 import { cliIntegrations } from './cliIntegrations.js';
+import {
+  GitLabMRTool,
+  GitLabPipelineTool,
+  GitLabIssueTool,
+  JiraIssueTool,
+  JiraSprintTool,
+  JiraReportTool,
+  SlackMessageTool,
+  SlackNotificationTool,
+  SlackChannelTool,
+  IntegrationAuthTool
+} from './integrations.js';
 
 export class ToolRegistry {
   private tools: Map<string, Tool> = new Map();
@@ -177,6 +189,18 @@ export class ToolRegistry {
     this.register(new cliIntegrations.taskwarrior());
     this.register(new cliIntegrations.tldr());
     this.register(new cliIntegrations.pet());
+
+    // Register third-party integrations
+    this.register(new IntegrationAuthTool());
+    this.register(new GitLabMRTool());
+    this.register(new GitLabPipelineTool());
+    this.register(new GitLabIssueTool());
+    this.register(new JiraIssueTool());
+    this.register(new JiraSprintTool());
+    this.register(new JiraReportTool());
+    this.register(new SlackMessageTool());
+    this.register(new SlackNotificationTool());
+    this.register(new SlackChannelTool());
 
     // Enable all tools by default
     this.tools.forEach((_, name) => this.enabledTools.add(name));

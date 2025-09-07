@@ -1,0 +1,7 @@
+/* Main CSS file for dashboard */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Import form styles for better accessibility and ordering */
+@import './forms.css';

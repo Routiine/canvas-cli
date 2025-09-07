@@ -1,20 +1,62 @@
 export interface Config {
-  ollamaUrl: string;
-  defaultModel: string;
+  // Legacy fields for backward compatibility
+  ollamaUrl?: string;
+  defaultModel?: string;
+  model?: string;
   theme?: string;
   vimMode?: boolean;
+  autoExecute?: boolean;
+  mcpServers?: any[];
+  
+  // New structured configuration
+  ollama?: {
+    baseUrl: string;
+    defaultModel: string;
+    models?: string[];
+    timeout?: number;
+    maxRetries?: number;
+  };
+  
+  ui?: {
+    theme: string;
+    vimMode: boolean;
+    autoComplete?: boolean;
+    syntaxHighlighting?: boolean;
+    showLineNumbers?: boolean;
+  };
+  
+  features?: {
+    autoExecute: boolean;
+    confirmBeforeExecute?: boolean;
+    saveHistory?: boolean;
+    maxHistorySize?: number;
+    enableTelemetry?: boolean;
+  };
+  
+  paths?: {
+    workspaceRoot?: string;
+    sessionsDir?: string;
+    logsDir?: string;
+    cacheDir?: string;
+    templatesDir?: string;
+  };
+  
   sandbox?: {
     enabled: boolean;
     type?: 'docker' | 'podman' | 'none';
   };
+  
   tools?: {
     fileOperations?: boolean;
     shellCommands?: boolean;
     webSearch?: boolean;
     webFetch?: boolean;
   };
+  
   telemetry?: boolean;
   customCommands?: Record<string, string>;
+  firstRun?: boolean;
+  version?: string;
 }
 
 export interface Tool {

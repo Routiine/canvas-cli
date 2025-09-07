@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas CLI Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // WebSocket connection
+        const socket = io('http://localhost:3001');
+
+        // Main Dashboard Component
+        function Dashboard() {
+            const [metrics, setMetrics] = useState({
+                cpu: 0,
+                memory: 0,
+                activeAgents: 0,
+                queueDepth: 0,
+                tasksProcessed: 0,
+                averageResponseTime: 0,
+                successRate: 1
+            });
+            
+            const [agents, setAgents] = useState([]);
+            const [tasks, setTasks] = useState([]);
+            const [stories, setStories] = useState([]);
+            const [workflows, setWorkflows] = useState([]);
+            const [planningBoard, setPlanningBoard] = useState({ columns: [] });
+            const [selectedView, setSelectedView] = useState('overview');
+
+            useEffect(() => {
+                // Socket event listeners
+                socket.on('initial-state', (data) => {
+                    setMetrics(data.metrics);
+                    setAgents(data.agents);
+                    setTasks(data.tasks);
+                    setStories(data.stories);
+                    setWorkflows(data.workflows);
+                });
+
+                socket.on('metrics-update', setMetrics);
+                socket.on('agent-update', updateAgent);
+                socket.on('task-update', updateTask);
+                socket.on('story-update', updateStory);
+                socket.on('workflow-update', updateWorkflow);
+                socket.on('board-updated', setPlanningBoard);
+
+                // Fetch initial planning board
+                fetchPlanningBoard();
+
+                return () => {
+                    socket.off('initial-state');
+                    socket.off('metrics-update');
+                    socket.off('agent-update');
+                    socket.off('task-update');
+                    socket.off('story-update');
+                    socket.off('workflow-update');
+                    socket.off('board-updated');
+                };
+            }, []);
+
+            const updateAgent = (agent) => {
+                setAgents(prev => {
+                    const index = prev.findIndex(a => a.id === agent.id);
+                    if (index >= 0) {
+                        const updated = [...prev];
+                        updated[index] = agent;
+                        return updated;
+                    }
+                    return [...prev, agent];
+                });
+            };
+
+            const updateTask = (task) => {
+                setTasks(prev => {
+                    const index = prev.findIndex(t => t.id === task.id);
+                    if (index >= 0) {
+                        const updated = [...prev];
+                        updated[index] = task;
+                        return updated;
+                    }
+                    return [...prev, task];
+                });
+            };
+
+            const updateStory = (story) => {
+                setStories(prev => {
+                    const index = prev.findIndex(s => s.id === story.id);
+                    if (index >= 0) {
+                        const updated = [...prev];
+                        updated[index] = story;
+                        return updated;
+                    }
+                    return [...prev, story];
+                });
+            };
+
+            const updateWorkflow = (workflow) => {
+                setWorkflows(prev => {
+                    const index = prev.findIndex(w => w.id === workflow.id);
+                    if (index >= 0) {
+                        const updated = [...prev];
+                        updated[index] = workflow;
+                        return updated;
+                    }
+                    return [...prev, workflow];
+                });
+            };
+
+            const fetchPlanningBoard = async () => {
+                try {
+                    const response = await fetch('http://localhost:3001/api/planning/board');
+                    const data = await response.json();
+                    setPlanningBoard(data);
+                } catch (error) {
+                    console.error('Failed to fetch planning board:', error);
+                }
+            };
+
+            return (
+                <div className="dashboard">
+                    <Header />
+                    <Navigation selectedView={selectedView} onViewChange={setSelectedView} />
+                    
+                    <div className="dashboard-content">
+                        {selectedView === 'overview' && (
+                            <OverviewView metrics={metrics} agents={agents} tasks={tasks} />
+                        )}
+                        {selectedView === 'agents' && (
+                            <AgentsView agents={agents} />
+                        )}
+                        {selectedView === 'tasks' && (
+                            <TasksView tasks={tasks} stories={stories} />
+                        )}
+                        {selectedView === 'planning' && (
+                            <PlanningBoard board={planningBoard} onBoardUpdate={fetchPlanningBoard} />
+                        )}
+                        {selectedView === 'workflows' && (
+                            <WorkflowsView workflows={workflows} />
+                        )}
+                        {selectedView === 'stories' && (
+                            <StoryMapper stories={stories} />
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Header Component
+        function Header() {
+            return (
+                <header className="dashboard-header">
+                    <div className="logo">
+                        <h1>🎨 Canvas CLI Dashboard</h1>
+                    </div>
+                    <div className="header-actions">
+                        <button className="btn btn-primary">New Task</button>
+                        <button className="btn btn-secondary">Settings</button>
+                    </div>
+                </header>
+            );
+        }
+
+        // Navigation Component
+        function Navigation({ selectedView, onViewChange }) {
+            const views = [
+                { id: 'overview', label: 'Overview', icon: '📊' },
+                { id: 'agents', label: 'Agents', icon: '🤖' },
+                { id: 'tasks', label: 'Tasks', icon: '📋' },
+                { id: 'planning', label: 'Planning Board', icon: '📌' },
+                { id: 'workflows', label: 'Workflows', icon: '🔄' },
+                { id: 'stories', label: 'Story Map', icon: '🗺️' }
+            ];
+
+            return (
+                <nav className="dashboard-nav">
+                    {views.map(view => (
+                        <button
+                            key={view.id}
+                            className={`nav-item ${selectedView === view.id ? 'active' : ''}`}
+                            onClick={() => onViewChange(view.id)}
+                        >
+                            <span className="nav-icon">{view.icon}</span>
+                            <span className="nav-label">{view.label}</span>
+                        </button>
+                    ))}
+                </nav>
+            );
+        }
+
+        // Overview View Component
+        function OverviewView({ metrics, agents, tasks }) {
+            const chartRef = useRef(null);
+            const chartInstance = useRef(null);
+
+            useEffect(() => {
+                if (chartRef.current) {
+                    const ctx = chartRef.current.getContext('2d');
+                    
+                    if (chartInstance.current) {
+                        chartInstance.current.destroy();
+                    }
+
+                    chartInstance.current = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: Array.from({ length: 20 }, (_, i) => i),
+                            datasets: [
+                                {
+                                    label: 'CPU Usage',
+                                    data: Array(20).fill(metrics.cpu * 100),
+                                    borderColor: 'rgb(255, 99, 132)',
+                                    tension: 0.1
+                                },
+                                {
+                                    label: 'Memory Usage',
+                                    data: Array(20).fill(metrics.memory * 100),
+                                    borderColor: 'rgb(54, 162, 235)',
+                                    tension: 0.1
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    max: 100
+                                }
+                            }
+                        }
+                    });
+                }
+
+                return () => {
+                    if (chartInstance.current) {
+                        chartInstance.current.destroy();
+                    }
+                };
+            }, [metrics]);
+
+            return (
+                <div className="overview-view">
+                    <div className="metrics-grid">
+                        <MetricCard title="CPU Usage" value={`${(metrics.cpu * 100).toFixed(1)}%`} type="percentage" />
+                        <MetricCard title="Memory Usage" value={`${(metrics.memory * 100).toFixed(1)}%`} type="percentage" />
+                        <MetricCard title="Active Agents" value={metrics.activeAgents} type="number" />
+                        <MetricCard title="Queue Depth" value={metrics.queueDepth} type="number" />
+                        <MetricCard title="Tasks Processed" value={metrics.tasksProcessed} type="number" />
+                        <MetricCard title="Success Rate" value={`${(metrics.successRate * 100).toFixed(1)}%`} type="percentage" />
+                    </div>
+
+                    <div className="chart-container">
+                        <h3>System Performance</h3>
+                        <canvas ref={chartRef} width="400" height="200"></canvas>
+                    </div>
+
+                    <div className="recent-activity">
+                        <h3>Recent Activity</h3>
+                        <div className="activity-list">
+                            {tasks.slice(0, 5).map(task => (
+                                <div key={task.id} className="activity-item">
+                                    <span className={`status-badge ${task.status}`}>{task.status}</span>
+                                    <span className="task-type">{task.type}</span>
+                                    <span className="task-time">{new Date(task.createdAt).toLocaleTimeString()}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Metric Card Component
+        function MetricCard({ title, value, type }) {
+            return (
+                <div className="metric-card">
+                    <h4>{title}</h4>
+                    <div className={`metric-value ${type}`}>{value}</div>
+                </div>
+            );
+        }
+
+        // Planning Board Component with Drag & Drop
+        function PlanningBoard({ board, onBoardUpdate }) {
+            useEffect(() => {
+                // Initialize drag and drop for each column
+                board.columns.forEach(column => {
+                    const element = document.getElementById(`column-${column.id}`);
+                    if (element) {
+                        new Sortable(element, {
+                            group: 'planning',
+                            animation: 150,
+                            ghostClass: 'ghost',
+                            onEnd: (evt) => {
+                                const itemId = evt.item.dataset.itemId;
+                                const sourceColumn = evt.from.dataset.columnId;
+                                const targetColumn = evt.to.dataset.columnId;
+                                const position = evt.newIndex;
+
+                                socket.emit('drag-drop', {
+                                    itemId,
+                                    sourceColumn,
+                                    targetColumn,
+                                    position
+                                });
+                            }
+                        });
+                    }
+                });
+            }, [board]);
+
+            return (
+                <div className="planning-board">
+                    <h2>Planning Board</h2>
+                    <div className="board-columns">
+                        {board.columns.map(column => (
+                            <div key={column.id} className="board-column">
+                                <div className="column-header">
+                                    <h3>{column.title}</h3>
+                                    <span className="item-count">{column.items.length}</span>
+                                </div>
+                                <div 
+                                    id={`column-${column.id}`}
+                                    className="column-items"
+                                    data-column-id={column.id}
+                                >
+                                    {column.items.map(item => (
+                                        <div 
+                                            key={item.id}
+                                            className={`planning-item ${item.type}`}
+                                            data-item-id={item.id}
+                                        >
+                                            <div className="item-header">
+                                                <span className="item-type">{item.type}</span>
+                                                <span className="item-priority">P{item.priority}</span>
+                                            </div>
+                                            <h4>{item.title}</h4>
+                                            {item.description && (
+                                                <p className="item-description">{item.description}</p>
+                                            )}
+                                            {item.assignee && (
+                                                <div className="item-assignee">{item.assignee}</div>
+                                            )}
+                                            {item.tags.length > 0 && (
+                                                <div className="item-tags">
+                                                    {item.tags.map(tag => (
+                                                        <span key={tag} className="tag">{tag}</span>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // Story Mapper Component
+        function StoryMapper({ stories }) {
+            const [selectedStory, setSelectedStory] = useState(null);
+
+            return (
+                <div className="story-mapper">
+                    <h2>Story Map</h2>
+                    <div className="story-map-container">
+                        <div className="story-timeline">
+                            {stories.map(story => (
+                                <div 
+                                    key={story.id}
+                                    className={`story-card ${selectedStory?.id === story.id ? 'selected' : ''}`}
+                                    onClick={() => setSelectedStory(story)}
+                                >
+                                    <h4>{story.title}</h4>
+                                    <div className="story-progress">
+                                        <div 
+                                            className="progress-bar"
+                                            style={{ width: `${story.progress}%` }}
+                                        ></div>
+                                    </div>
+                                    <span className="story-status">{story.status}</span>
+                                </div>
+                            ))}
+                        </div>
+                        
+                        {selectedStory && (
+                            <div className="story-details">
+                                <h3>{selectedStory.title}</h3>
+                                <p>{selectedStory.description}</p>
+                                <div className="story-tasks">
+                                    <h4>Tasks</h4>
+                                    {selectedStory.tasks.map(taskId => (
+                                        <div key={taskId} className="story-task">
+                                            {taskId}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // Agents View Component
+        function AgentsView({ agents }) {
+            return (
+                <div className="agents-view">
+                    <h2>Agents</h2>
+                    <div className="agents-grid">
+                        {agents.map(agent => (
+                            <div key={agent.id} className={`agent-card ${agent.status}`}>
+                                <div className="agent-header">
+                                    <h3>{agent.name}</h3>
+                                    <span className={`status-indicator ${agent.status}`}></span>
+                                </div>
+                                <div className="agent-metrics">
+                                    <div>Tasks: {agent.metrics.tasksCompleted}</div>
+                                    <div>Success: {(agent.metrics.successRate * 100).toFixed(0)}%</div>
+                                    <div>Avg Time: {agent.metrics.averageTime.toFixed(0)}ms</div>
+                                </div>
+                                {agent.currentTask && (
+                                    <div className="current-task">
+                                        Working on: {agent.currentTask}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // Tasks View Component
+        function TasksView({ tasks, stories }) {
+            return (
+                <div className="tasks-view">
+                    <h2>Tasks & Stories</h2>
+                    <div className="tasks-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th>Created</th>
+                                    <th>Assignee</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {tasks.map(task => (
+                                    <tr key={task.id}>
+                                        <td>{task.id.substring(0, 8)}...</td>
+                                        <td>{task.type}</td>
+                                        <td>
+                                            <span className={`status-badge ${task.status}`}>
+                                                {task.status}
+                                            </span>
+                                        </td>
+                                        <td>{new Date(task.createdAt).toLocaleString()}</td>
+                                        <td>{task.assignee || '-'}</td>
+                                        <td>
+                                            <button className="btn btn-sm">View</button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        // Workflows View Component
+        function WorkflowsView({ workflows }) {
+            return (
+                <div className="workflows-view">
+                    <h2>Workflows</h2>
+                    <div className="workflows-list">
+                        {workflows.map(workflow => (
+                            <div key={workflow.id} className="workflow-card">
+                                <h3>{workflow.name}</h3>
+                                <div className="workflow-stages">
+                                    {workflow.stages.map((stage, index) => (
+                                        <div 
+                                            key={index}
+                                            className={`stage ${index === workflow.currentStage ? 'active' : ''}`}
+                                        >
+                                            {stage.name || `Stage ${index + 1}`}
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="workflow-status">
+                                    Status: {workflow.status}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        // Render the dashboard
+        ReactDOM.render(<Dashboard />, document.getElementById('root'));
+    </script>
+</body>
+</html>

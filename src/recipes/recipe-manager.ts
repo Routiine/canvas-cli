@@ -597,6 +597,90 @@ export class RecipeManager {
       }
     }
   }
+
+  /**
+   * Load all recipe libraries
+   */
+  public async loadLibraries(): Promise<void> {
+    await this.initializeRecipeDirectories();
+  }
+
+  /**
+   * List all recipes from all libraries
+   */
+  public async listRecipes(category?: string): Promise<Array<{name: string, path: string, recipe: Recipe}>> {
+    const results: Array<{name: string, path: string, recipe: Recipe}> = [];
+    
+    for (const [libraryName, library] of this.libraries) {
+      if (category && !libraryName.includes(category)) continue;
+      
+      for (const [recipeName, recipe] of library.recipes) {
+        results.push({
+          name: recipeName,
+          path: path.join(library.path, recipeName),
+          recipe
+        });
+      }
+    }
+    
+    return results;
+  }
+
+  /**
+   * Find a specific recipe by name
+   */
+  public async findRecipe(recipeName: string): Promise<Recipe | null> {
+    for (const library of this.libraries.values()) {
+      if (library.recipes.has(recipeName)) {
+        return library.recipes.get(recipeName) || null;
+      }
+      
+      // Try with .yaml extension
+      if (library.recipes.has(`${recipeName}.yaml`)) {
+        return library.recipes.get(`${recipeName}.yaml`) || null;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Execute a recipe with parameters
+   */
+  public async executeRecipe(recipeName: string, parameters: Record<string, string>): Promise<RecipeExecutionResult> {
+    const recipe = await this.findRecipe(recipeName);
+    
+    if (!recipe) {
+      return {
+        success: false,
+        output: '',
+        error: `Recipe '${recipeName}' not found`,
+        duration: 0,
+        parameters
+      };
+    }
+    
+    const paramMap = new Map(Object.entries(parameters));
+    
+    // Render the recipe with parameters
+    const renderedRecipe = await this.renderRecipe(recipe, paramMap);
+    
+    // For now, just return the rendered prompt as output
+    // In a real implementation, this would execute the recipe through the AI model
+    return {
+      success: true,
+      output: renderedRecipe.prompt || 'Recipe executed successfully',
+      duration: 0,
+      parameters
+    };
+  }
+
+  /**
+   * Render a template string with parameters
+   */
+  public async renderTemplate(template: string, context: Record<string, any>): Promise<string> {
+    return this.templateEnvironment.renderString(template, context);
+  }
 }
 
 // Export singleton instance

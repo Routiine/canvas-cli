@@ -1,0 +1,221 @@
+version: "1.0.0"
+title: "Feature Development"
+description: "End-to-end feature development with TDD, clean code, and comprehensive testing"
+author: "Canvas CLI Development Team"
+tags:
+  - "development"
+  - "feature"
+  - "tdd"
+  - "testing"
+  - "implementation"
+
+instructions: |
+  This recipe guides you through complete feature development:
+  - Requirements analysis and design
+  - Test-driven development (TDD)
+  - Clean code implementation
+  - Comprehensive testing
+  - Documentation
+  - Integration and deployment
+
+parameters:
+  - key: feature_name
+    input_type: string
+    requirement: required
+    description: "Name of the feature to develop"
+    validation:
+      minLength: 3
+      maxLength: 100
+
+  - key: feature_description
+    input_type: string
+    requirement: required
+    description: "Detailed description of the feature"
+    validation:
+      minLength: 20
+      maxLength: 500
+
+  - key: project_path
+    input_type: directory
+    requirement: required
+    description: "Path to the project"
+    default: "."
+
+  - key: development_approach
+    input_type: select
+    requirement: optional
+    description: "Development methodology"
+    default: "tdd"
+    options:
+      - "tdd"
+      - "bdd"
+      - "ddd"
+      - "traditional"
+
+  - key: architecture_pattern
+    input_type: select
+    requirement: optional
+    description: "Architecture pattern to follow"
+    default: "mvc"
+    options:
+      - "mvc"
+      - "mvvm"
+      - "clean"
+      - "hexagonal"
+      - "microservices"
+      - "serverless"
+
+  - key: test_coverage_target
+    input_type: number
+    requirement: optional
+    description: "Target test coverage percentage"
+    default: "90"
+    validation:
+      min: 70
+      max: 100
+
+  - key: include_ui
+    input_type: boolean
+    requirement: optional
+    description: "Does this feature include UI components?"
+    default: "false"
+
+  - key: include_api
+    input_type: boolean
+    requirement: optional
+    description: "Does this feature include API endpoints?"
+    default: "true"
+
+  - key: include_database
+    input_type: boolean
+    requirement: optional
+    description: "Does this feature require database changes?"
+    default: "true"
+
+prompt: |
+  Develop a feature called "{{ feature_name }}" for the project at {{ project_path }}.
+  
+  Feature Description: {{ feature_description }}
+  
+  Development Process:
+  
+  1. **Analysis Phase**
+     - Analyze requirements and constraints
+     - Identify dependencies and integration points
+     - Create technical design following {{ architecture_pattern }} pattern
+     - Define acceptance criteria
+  
+  2. **Design Phase**
+     {% if include_api %}
+     - Design API contracts (OpenAPI/Swagger)
+     - Define request/response schemas
+     {% endif %}
+     {% if include_database %}
+     - Design database schema changes
+     - Plan migration strategy
+     {% endif %}
+     {% if include_ui %}
+     - Create UI/UX wireframes
+     - Design component hierarchy
+     {% endif %}
+     - Plan error handling and edge cases
+  
+  3. **Implementation Phase ({{ development_approach | upper }})**
+     {% if development_approach == "tdd" %}
+     - Write failing tests first
+     - Implement minimal code to pass tests
+     - Refactor while keeping tests green
+     {% elif development_approach == "bdd" %}
+     - Write behavior specifications
+     - Implement features to match specifications
+     {% endif %}
+     - Follow SOLID principles
+     - Apply appropriate design patterns
+     - Ensure clean, maintainable code
+  
+  4. **Testing Phase**
+     - Unit tests ({{ test_coverage_target }}% coverage minimum)
+     - Integration tests
+     {% if include_api %}
+     - API contract tests
+     - Load testing for endpoints
+     {% endif %}
+     {% if include_ui %}
+     - Component tests
+     - E2E tests for user flows
+     - Accessibility testing
+     {% endif %}
+     - Security testing
+     - Performance testing
+  
+  5. **Documentation Phase**
+     - API documentation
+     - Code documentation (JSDoc/docstrings)
+     - User documentation
+     - Architecture decision records (ADRs)
+  
+  6. **Integration Phase**
+     - Feature flags implementation
+     - Backward compatibility checks
+     - Database migration scripts
+     - Deployment configuration
+  
+  Deliverables:
+  - Working feature implementation
+  - Comprehensive test suite
+  - Complete documentation
+  - Performance benchmarks
+  - Deployment instructions
+
+system_prompt: |
+  You are a senior full-stack developer with expertise in modern software
+  development practices. You follow TDD/BDD methodologies, write clean code
+  following SOLID principles, and ensure comprehensive testing. You consider
+  security, performance, and maintainability in all implementations.
+
+tools:
+  - "shell"
+  - "file"
+  - "git"
+  - "web"
+
+model_preferences:
+  preferred_models:
+    - "claude-3-opus"
+    - "gpt-4"
+  min_context_length: 32768
+  requires_tools: true
+
+execution:
+  max_iterations: 25
+  timeout: 900
+  parallel: false
+
+examples:
+  - name: "User Authentication Feature"
+    description: "Implement complete user authentication system"
+    parameters:
+      feature_name: "user-authentication"
+      feature_description: "Implement secure user authentication with JWT tokens, password reset, and 2FA support"
+      project_path: "./my-app"
+      development_approach: "tdd"
+      architecture_pattern: "clean"
+      test_coverage_target: "95"
+      include_ui: "true"
+      include_api: "true"
+      include_database: "true"
+    expected_output: "Complete authentication system with login, registration, password reset, 2FA, and comprehensive tests"
+
+  - name: "Payment Processing"
+    description: "Add payment processing capability"
+    parameters:
+      feature_name: "payment-processing"
+      feature_description: "Integrate Stripe payment processing with subscription management and invoice generation"
+      project_path: "./saas-platform"
+      development_approach: "tdd"
+      architecture_pattern: "hexagonal"
+      test_coverage_target: "90"
+      include_ui: "true"
+      include_api: "true"
+      include_database: "true"
+    expected_output: "Payment system with Stripe integration, subscription management, and billing dashboard"

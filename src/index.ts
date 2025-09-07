@@ -28,6 +28,7 @@ import { createUpdateCommand } from './commands/update.js';
 import { ModelManager } from './models/model-manager.js';
 import { getOrchestrator, executeWorkflow, coordinateGoal } from './agents/orchestrator.js';
 import { initializeCanvasFeatures, CanvasFeatures } from './features/index.js';
+import { configWizard } from './config/setup-wizard.js';
 
 interface OllamaGenerateRequest {
   model: string;
@@ -147,10 +148,7 @@ async function startInteractiveMode(model: string): Promise<void> {
     if (inputChoice.inputMethod === 'textbox') {
       const textBoxResult = await showTextBox({
         title: '🎨 Canvas CLI - Text Input',
-        placeholder: 'Enter your message, code, or paste complex content...',
-        enableFileImport: true,
-        enableMarkdown: true,
-        autoDetectLanguage: true
+        placeholder: 'Enter your message, code, or paste complex content...'
       });
       
       userInput = textBoxResult.content.trim();
@@ -184,11 +182,7 @@ async function startInteractiveMode(model: string): Promise<void> {
       if (userInput === '/textbox' || userInput === '/text') {
         const textBoxResult = await showTextBox({
           title: '🎨 Canvas CLI - Advanced Text Input',
-          placeholder: 'Enter your complex message, code, documentation, or paste content...',
-          enableFileImport: true,
-          enableMarkdown: true,
-          autoDetectLanguage: true,
-          saveToFile: false
+          placeholder: 'Enter your complex message, code, documentation, or paste content...'
         });
         
         if (textBoxResult.content.trim()) {
@@ -794,12 +788,64 @@ async function generateResponse(prompt: string, model?: string): Promise<void> {
 
 async function main() {
   let config = loadConfig();
-  if (!config.ollamaUrl) {
-    console.log(chalk.yellow('It seems this is your first time running Canvas CLI.'));
-    console.log(chalk.yellow('Please run `canvas install` to configure the application.'));
-    // do not return here, so that the install command can be run
+  
+  // Check if config is empty (first run or no config)
+  const needsConfig = !config.ollamaUrl && !config.ollama?.baseUrl;
+  
+  if (needsConfig) {
+    console.log(chalk.cyan.bold('\n🎨 Welcome to Canvas CLI!'));
+    console.log(chalk.yellow('No configuration found. Let\'s set up Canvas CLI.'));
+    console.log(chalk.gray('You can also run "canvas config" anytime to configure.\n'));
+    
+    // Simple initial config - just ask for Ollama URL
+    const inquirer = await import('inquirer');
+    const { setupNow } = await inquirer.default.prompt([
+      {
+        type: 'confirm',
+        name: 'setupNow',
+        message: 'Would you like to configure Canvas CLI now?',
+        default: true
+      }
+    ]);
+    
+    if (setupNow) {
+      const { ollamaUrl } = await inquirer.default.prompt([
+        {
+          type: 'input',
+          name: 'ollamaUrl',
+          message: 'Enter Ollama API URL:',
+          default: 'http://localhost:11434',
+          validate: (input) => {
+            try {
+              new URL(input);
+              return true;
+            } catch {
+              return 'Please enter a valid URL';
+            }
+          }
+        }
+      ]);
+      
+      // Save minimal config
+      config = {
+        ollamaUrl: ollamaUrl,
+        ollama: {
+          baseUrl: ollamaUrl,
+          defaultModel: 'llama3.2:latest'
+        }
+      };
+      saveConfig(config);
+      console.log(chalk.green('\n✅ Basic configuration saved! Use /config to add more settings.\n'));
+    } else {
+      console.log(chalk.yellow('\n⚠️  No configuration set. Canvas CLI may not work properly.'));
+      console.log(chalk.gray('Run /config to configure at any time.\n'));
+    }
   }
-  ModelManager.registerDefaultAliasFromConfig(config.defaultModel);
+  
+  // Set default model from config if available
+  if (config.defaultModel || config.ollama?.defaultModel) {
+    ModelManager.registerDefaultAliasFromConfig(config.defaultModel || config.ollama?.defaultModel);
+  }
   
   // Initialize all Canvas Features (optional - don't fail if features can't load)
   let featureManager: any;
@@ -882,7 +928,7 @@ async function main() {
         console.log('');
         
         // Get bordered input using simple solution
-        const border = new UnifiedBorder({ style: 'double', showMode: true });
+        const border = new UnifiedBorder({ style: 'double', showMode: true, clearScreen: false });
         const message = await border.getBorderedInput('>', true);
         
         // First prompt handled by border component
@@ -1101,16 +1147,37 @@ Example tool usage:
 
   program
     .command('config')
-    .description('Configure Ollama CLI')
-    .option('--url <url>', 'Set Ollama server URL', config.ollamaUrl)
-    .option('--model <model>', 'Set default model', config.defaultModel)
-    .action(async (options: { url: string; model: string }) => {
-      const newConfig: Config = {
-        ollamaUrl: options.url,
-        defaultModel: options.model,
-      };
-      saveConfig(newConfig);
-      console.log('Configuration saved.');
+    .description('Configure Canvas CLI settings interactively')
+    .argument('[action]', 'Optional: show, set, test, reset, help')
+    .argument('[key]', 'Config key (for set command)')
+    .argument('[value]', 'Config value (for set command)')
+    .action(async (action?: string, key?: string, value?: string) => {
+      // Import the config command
+      const { configCommand } = await import('./commands/config-command.js');
+      
+      // Build args string from arguments
+      let args = '';
+      if (action) {
+        args = action;
+        if (key) {
+          args += ` ${key}`;
+          if (value) {
+            args += ` ${value}`;
+          }
+        }
+      }
+      
+      // If no arguments provided, show interactive menu
+      if (!action) {
+        // Launch interactive configuration
+        await configCommand.execute('');
+      } else {
+        // Execute with provided arguments
+        const result = await configCommand.execute(args);
+        if (result) {
+          console.log(result);
+        }
+      }
     });
 
   // Better Canvas CLI commands

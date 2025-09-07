@@ -6,24 +6,8 @@ import { Config } from './types.js';
 const CONFIG_DIR = path.join(os.homedir(), '.canvas-cli');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
-const defaultConfig: Config = {
-  ollamaUrl: process.env.OLLAMA_URL || '',
-  defaultModel: process.env.OLLAMA_MODEL || 'llama3.2:latest',
-  theme: 'default',
-  vimMode: false,
-  sandbox: {
-    enabled: false,
-    type: 'none'
-  },
-  tools: {
-    fileOperations: true,
-    shellCommands: true,
-    webSearch: true,
-    webFetch: true
-  },
-  telemetry: false,
-  customCommands: {}
-};
+// No defaults! Config starts empty until user configures it
+const emptyConfig: Config = {};
 
 export function loadConfig(): Config {
   try {
@@ -34,13 +18,15 @@ export function loadConfig(): Config {
     
     if (fs.existsSync(CONFIG_FILE)) {
       const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
-      return { ...defaultConfig, ...JSON.parse(data) };
+      // Return exactly what's in the file, no merging with defaults
+      return JSON.parse(data);
     }
   } catch (error) {
     console.warn('Error loading config:', error);
   }
 
-  return defaultConfig;
+  // Return empty config - user must configure it
+  return emptyConfig;
 }
 
 export function saveConfig(config: Partial<Config>): void {
@@ -50,9 +36,8 @@ export function saveConfig(config: Partial<Config>): void {
       fs.mkdirSync(CONFIG_DIR, { recursive: true });
     }
     
-    const currentConfig = loadConfig();
-    const newConfig = { ...currentConfig, ...config };
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(newConfig, null, 2));
+    // Save exactly what's provided - no merging
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
   } catch (error) {
     console.error('Error saving config:', error);
   }

@@ -1,0 +1,155 @@
+version: "1.0.0"
+title: "Quick Start New Project"
+description: "Initialize a new project with best practices, testing, CI/CD, and documentation"
+author: "Canvas CLI Team"
+tags:
+  - "initialization"
+  - "setup"
+  - "starter"
+  - "scaffolding"
+
+instructions: |
+  This recipe will help you quickly start a new project with:
+  - Proper project structure
+  - Git repository with best practices
+  - Testing framework setup
+  - CI/CD pipeline configuration
+  - Documentation structure
+  - Development environment configuration
+
+parameters:
+  - key: project_name
+    input_type: string
+    requirement: required
+    description: "Name of your project"
+    validation:
+      pattern: "^[a-z0-9-]+$"
+      minLength: 3
+      maxLength: 50
+
+  - key: project_type
+    input_type: select
+    requirement: required
+    description: "Type of project to create"
+    default: "node"
+    options:
+      - "node"
+      - "react"
+      - "vue"
+      - "python"
+      - "go"
+      - "rust"
+
+  - key: package_manager
+    input_type: select
+    requirement: optional
+    description: "Package manager to use (for Node.js projects)"
+    default: "npm"
+    options:
+      - "npm"
+      - "yarn"
+      - "pnpm"
+
+  - key: include_docker
+    input_type: boolean
+    requirement: optional
+    description: "Include Docker configuration?"
+    default: "true"
+
+  - key: include_ci
+    input_type: boolean
+    requirement: optional
+    description: "Include CI/CD configuration?"
+    default: "true"
+
+  - key: ci_platform
+    input_type: select
+    requirement: optional
+    description: "CI/CD platform to configure"
+    default: "github"
+    options:
+      - "github"
+      - "gitlab"
+      - "jenkins"
+      - "circleci"
+
+  - key: testing_framework
+    input_type: select
+    requirement: optional
+    description: "Testing framework to use"
+    default: "jest"
+    options:
+      - "jest"
+      - "mocha"
+      - "vitest"
+      - "pytest"
+      - "go-test"
+      - "cargo-test"
+
+prompt: |
+  I need to create a new {{ project_type }} project called "{{ project_name }}".
+  
+  Please:
+  1. Create the project structure
+  2. Initialize git repository with proper .gitignore
+  3. Set up {{ testing_framework }} for testing
+  {% if include_docker %}
+  4. Create Docker configuration (Dockerfile and docker-compose.yml)
+  {% endif %}
+  {% if include_ci %}
+  5. Set up CI/CD pipeline for {{ ci_platform }}
+  {% endif %}
+  6. Create initial README.md with project information
+  7. Set up pre-commit hooks for code quality
+  8. Configure linting and formatting tools
+  9. Create initial project documentation structure
+  
+  Use best practices for {{ project_type }} development.
+
+system_prompt: |
+  You are an expert software engineer specializing in project initialization and setup.
+  You follow industry best practices and create production-ready project structures.
+  You ensure proper configuration for testing, CI/CD, and development workflows.
+
+tools:
+  - "shell"
+  - "file"
+  - "git"
+  - "web"
+
+model_preferences:
+  preferred_models:
+    - "claude-3-opus"
+    - "gpt-4"
+  min_context_length: 8192
+  requires_tools: true
+
+execution:
+  max_iterations: 10
+  timeout: 300
+  parallel: false
+
+examples:
+  - name: "Node.js REST API"
+    description: "Create a Node.js REST API project"
+    parameters:
+      project_name: "my-api"
+      project_type: "node"
+      package_manager: "npm"
+      include_docker: "true"
+      include_ci: "true"
+      ci_platform: "github"
+      testing_framework: "jest"
+    expected_output: "A fully configured Node.js API project with Express, testing, Docker, and GitHub Actions"
+
+  - name: "React Application"
+    description: "Create a React application with TypeScript"
+    parameters:
+      project_name: "my-app"
+      project_type: "react"
+      package_manager: "yarn"
+      include_docker: "true"
+      include_ci: "true"
+      ci_platform: "gitlab"
+      testing_framework: "jest"
+    expected_output: "A React application with TypeScript, testing setup, Docker configuration, and GitLab CI"

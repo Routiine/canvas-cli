@@ -6,17 +6,12 @@ import os from 'os';
 
 /**
  * Enhanced text box interface for Canvas CLI
- * Supports multi-line input, file pasting, and various input modes
+ * Supports multi-line input using an external editor.
  */
 
 export interface TextBoxOptions {
   title?: string;
   placeholder?: string;
-  maxLines?: number;
-  enableFileImport?: boolean;
-  enableMarkdown?: boolean;
-  autoDetectLanguage?: boolean;
-  saveToFile?: boolean;
   syntax?: string;
 }
 
@@ -27,7 +22,6 @@ export interface TextBoxResult {
     characters: number;
     words: number;
     language?: string;
-    savedFile?: string;
   };
 }
 
@@ -53,38 +47,11 @@ export class CanvasTextBox {
     const {
       title = '📝 Canvas Text Box',
       placeholder = 'Enter your text here...',
-      maxLines = 50,
-      enableFileImport = true,
-      enableMarkdown = true,
-      autoDetectLanguage = true,
-      saveToFile = false,
       syntax
     } = options;
 
-    // Draw title with border
-    console.log(chalk.cyan('\n╔' + '═'.repeat(60) + '╗'));
-    console.log(chalk.cyan('║') + chalk.yellow.bold(` ${title}`.padEnd(59)) + chalk.cyan('║'));
-    console.log(chalk.cyan('╚' + '═'.repeat(60) + '╝'));
-    
-    // Show input method options
-    const inputMethod = await this.selectInputMethod(enableFileImport);
-    
-    let content = '';
-    
-    switch (inputMethod) {
-      case 'multiline':
-        content = await this.showMultiLineInput(placeholder, maxLines);
-        break;
-      case 'editor':
-        content = await this.openExternalEditor(syntax);
-        break;
-      case 'file':
-        content = await this.importFromFile();
-        break;
-      case 'clipboard':
-        content = await this.pasteFromClipboard();
-        break;
-    }
+    console.log(chalk.blue(`\n${title}`));
+    const content = await this.openExternalEditor(syntax, placeholder);
 
     if (!content.trim()) {
       console.log(chalk.yellow('📭 No content provided.'));
@@ -95,132 +62,23 @@ export class CanvasTextBox {
     }
 
     // Process and analyze content
-    const metadata = this.analyzeContent(content, autoDetectLanguage);
+    const metadata = this.analyzeContent(content, true);
     
-    // Display content preview
-    this.showContentPreview(content, metadata);
-    
-    // Save to file if requested
-    if (saveToFile) {
-      metadata.savedFile = await this.saveContentToFile(content, syntax);
-    }
-
     return { content, metadata };
-  }
-
-  /**
-   * Select input method
-   */
-  private async selectInputMethod(enableFileImport: boolean): Promise<string> {
-    const choices = [
-      {
-        name: '📝 Multi-line text input (in terminal)',
-        value: 'multiline',
-        short: 'Multi-line'
-      },
-      {
-        name: `📄 External editor (${this.editorCommand})`,
-        value: 'editor',
-        short: 'Editor'
-      },
-      {
-        name: '📋 Paste from clipboard',
-        value: 'clipboard',
-        short: 'Clipboard'
-      }
-    ];
-
-    if (enableFileImport) {
-      choices.push({
-        name: '📂 Import from file',
-        value: 'file',
-        short: 'File'
-      });
-    }
-
-    const answer = await inquirer.prompt({
-      type: 'list',
-      name: 'method',
-      message: 'How would you like to input your text?',
-      choices,
-      default: 'multiline'
-    });
-
-    return answer.method;
-  }
-
-  /**
-   * Multi-line input in terminal
-   */
-  private async showMultiLineInput(placeholder: string, maxLines: number): Promise<string> {
-    // Draw top border
-    console.log(chalk.cyan('\n╔' + '═'.repeat(60) + '╗'));
-    console.log(chalk.cyan('║') + chalk.blue.bold(' 💡 Multi-line Input Mode'.padEnd(59)) + chalk.cyan('║'));
-    console.log(chalk.cyan('╟' + '─'.repeat(60) + '╢'));
-    console.log(chalk.cyan('║') + chalk.gray(` • Type your content (up to ${maxLines} lines)`.padEnd(59)) + chalk.cyan('║'));
-    console.log(chalk.cyan('║') + chalk.gray(` • Press Enter twice to finish`.padEnd(59)) + chalk.cyan('║'));
-    console.log(chalk.cyan('║') + chalk.gray(` • Type 'CANCEL' on empty line to cancel`.padEnd(59)) + chalk.cyan('║'));
-    console.log(chalk.cyan('╟' + '─'.repeat(60) + '╢'));
-    
-    const lines: string[] = [];
-    let emptyLineCount = 0;
-    let lineNumber = 1;
-
-    while (lineNumber <= maxLines) {
-      const prompt = chalk.cyan('║ ') + chalk.blue(`${lineNumber.toString().padStart(3)} │ `);
-      
-      const answer = await inquirer.prompt({
-        type: 'input',
-        name: 'line',
-        message: prompt,
-        default: lineNumber === 1 ? placeholder : ''
-      });
-
-      const line = answer.line;
-
-      // Check for cancel command
-      if (line === 'CANCEL' && lines.length === 0) {
-        console.log(chalk.yellow('❌ Input cancelled.'));
-        return '';
-      }
-
-      // Check for completion (two empty lines)
-      if (!line.trim()) {
-        emptyLineCount++;
-        if (emptyLineCount >= 2) {
-          break;
-        }
-      } else {
-        emptyLineCount = 0;
-      }
-
-      lines.push(line);
-      lineNumber++;
-    }
-
-    // Draw bottom border
-    console.log(chalk.cyan('╚' + '═'.repeat(60) + '╝'));
-    
-    if (lineNumber > maxLines) {
-      console.log(chalk.yellow(`\n⚠️  Maximum lines (${maxLines}) reached.`));
-    }
-
-    return lines.join('\n').trimEnd();
   }
 
   /**
    * Open external editor
    */
-  private async openExternalEditor(syntax?: string): Promise<string> {
+  private async openExternalEditor(syntax?: string, placeholder?: string): Promise<string> {
     const extension = this.getFileExtension(syntax);
     const tempFile = path.join(this.tempDir, `canvas-input-${Date.now()}${extension}`);
     
-    // Create temp file with placeholder
-    const placeholder = syntax 
-      ? `// Enter your ${syntax} content here\n// Save and close the editor to continue\n\n`
-      : `Enter your content here\nSave and close the editor to continue\n\n`;
+    const fileContent = placeholder || (syntax 
+      ? `// Enter your ${syntax} content here\n// Save and close the editor to continue\n\n` 
+      : `Enter your content here\nSave and close the editor to continue\n\n`);
     
-    await fs.writeFile(tempFile, placeholder);
+    await fs.writeFile(tempFile, fileContent);
     
     console.log(chalk.blue(`\n📄 Opening ${this.editorCommand}...`));
     console.log(chalk.gray(`   File: ${tempFile}`));
@@ -251,77 +109,12 @@ export class CanvasTextBox {
       // Clean up temp file
       await fs.remove(tempFile);
       
-      return content.replace(placeholder, '').trim();
+      return content.replace(fileContent, '').trim();
       
     } catch (error) {
       console.log(chalk.red(`❌ Error opening editor: ${error instanceof Error ? error.message : String(error)}`));
-      
-      // Fallback to multi-line input
-      console.log(chalk.yellow('🔄 Falling back to multi-line input...'));
-      return this.showMultiLineInput('Enter your content...', 50);
-    }
-  }
-
-  /**
-   * Import content from file
-   */
-  private async importFromFile(): Promise<string> {
-    const answer = await inquirer.prompt({
-      type: 'input',
-      name: 'filePath',
-      message: 'Enter file path to import:',
-      validate: async (input) => {
-        if (!input.trim()) return 'File path is required';
-        
-        const fullPath = path.resolve(input.trim());
-        
-        if (!await fs.pathExists(fullPath)) {
-          return 'File does not exist';
-        }
-        
-        const stats = await fs.stat(fullPath);
-        if (!stats.isFile()) {
-          return 'Path is not a file';
-        }
-        
-        // Check file size (limit to 10MB)
-        if (stats.size > 10 * 1024 * 1024) {
-          return 'File too large (max 10MB)';
-        }
-        
-        return true;
-      }
-    });
-
-    try {
-      const fullPath = path.resolve(answer.filePath.trim());
-      const content = await fs.readFile(fullPath, 'utf-8');
-      
-      console.log(chalk.green(`✅ Imported content from: ${fullPath}`));
-      return content;
-      
-    } catch (error) {
-      console.log(chalk.red(`❌ Error reading file: ${error instanceof Error ? error.message : String(error)}`));
       return '';
     }
-  }
-
-  /**
-   * Paste from clipboard (simulated - would need clipboard access)
-   */
-  private async pasteFromClipboard(): Promise<string> {
-    console.log(chalk.blue(`\n📋 Clipboard paste mode:`));
-    console.log(chalk.gray(`   • Paste your content below`));
-    console.log(chalk.gray(`   • Press Ctrl+D when finished (or type END on new line)`));
-    console.log(chalk.gray('━'.repeat(40)));
-
-    const answer = await inquirer.prompt({
-      type: 'editor',
-      name: 'content',
-      message: 'Paste your content:',
-    });
-
-    return answer.content || '';
   }
 
   /**
@@ -343,65 +136,6 @@ export class CanvasTextBox {
     }
 
     return metadata;
-  }
-
-  /**
-   * Show content preview
-   */
-  private showContentPreview(content: string, metadata: TextBoxResult['metadata']): void {
-    // Draw bordered preview box
-    console.log(chalk.green('\n╔' + '═'.repeat(60) + '╗'));
-    console.log(chalk.green('║') + chalk.green.bold(' ✅ Content Received!'.padEnd(59)) + chalk.green('║'));
-    console.log(chalk.green('╟' + '─'.repeat(60) + '╢'));
-    
-    // Metadata section
-    console.log(chalk.green('║') + chalk.blue(' 📊 Statistics:'.padEnd(59)) + chalk.green('║'));
-    console.log(chalk.green('║') + chalk.gray(`    Lines: ${metadata.lines.toLocaleString()}`.padEnd(59)) + chalk.green('║'));
-    console.log(chalk.green('║') + chalk.gray(`    Characters: ${metadata.characters.toLocaleString()}`.padEnd(59)) + chalk.green('║'));
-    console.log(chalk.green('║') + chalk.gray(`    Words: ${metadata.words.toLocaleString()}`.padEnd(59)) + chalk.green('║'));
-    
-    if (metadata.language) {
-      console.log(chalk.green('║') + chalk.gray(`    Language: ${metadata.language}`.padEnd(59)) + chalk.green('║'));
-    }
-    
-    // Preview section with border
-    console.log(chalk.green('╟' + '─'.repeat(60) + '╢'));
-    console.log(chalk.green('║') + chalk.blue(' 📖 Preview:'.padEnd(59)) + chalk.green('║'));
-    
-    const preview = content.slice(0, 200);
-    const hasMore = content.length > 200;
-    const previewLines = preview.split('\n').slice(0, 5);
-    
-    previewLines.forEach((line) => {
-      const truncated = line.length > 56 ? line.slice(0, 53) + '...' : line;
-      console.log(chalk.green('║') + chalk.white('  ' + truncated.padEnd(57)) + chalk.green('║'));
-    });
-    
-    if (hasMore || content.split('\n').length > 5) {
-      console.log(chalk.green('║') + chalk.yellow('  ... (content continues)'.padEnd(59)) + chalk.green('║'));
-    }
-    
-    // Close the box
-    console.log(chalk.green('╚' + '═'.repeat(60) + '╝'));
-  }
-
-  /**
-   * Save content to file
-   */
-  private async saveContentToFile(content: string, syntax?: string): Promise<string> {
-    const extension = this.getFileExtension(syntax);
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const fileName = `canvas-content-${timestamp}${extension}`;
-    const filePath = path.join(process.cwd(), fileName);
-    
-    try {
-      await fs.writeFile(filePath, content, 'utf-8');
-      console.log(chalk.green(`💾 Content saved to: ${fileName}`));
-      return filePath;
-    } catch (error) {
-      console.log(chalk.red(`❌ Error saving file: ${error instanceof Error ? error.message : String(error)}`));
-      return '';
-    }
   }
 
   /**
@@ -462,7 +196,7 @@ export class CanvasTextBox {
       'Java': [/public\s+class\s+\w+/, /public\s+static\s+void\s+main/, /System\.out\.println/],
       'C++': [/#include\s*</, /std::/, /int\s+main\(/],
       'HTML': [/<html/, /<div/, /<script/, /<style/],
-      'CSS': [/\{\s*[\w-]+\s*:/, /@media/, /\.[\w-]+\s*\{/],
+      'CSS': [/\{\s*[\w-]+\s*:/, /@media/, /\.["w-]+\s*\{/],
       'JSON': [/^\s*{/, /"[\w-]+"\s*:/],
       'YAML': [/^[\w-]+\s*:/, /^\s*-\s+/],
       'Markdown': [/^#\s+/, /\*\*\w+\*\*/, /```/],

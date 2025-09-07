@@ -273,9 +273,9 @@ export class EnhancedErrorHandler {
     }
     
     let output = '';
-    output += chalk.red.bold('\n╔════ Error ════╗\n');
-    output += chalk.red(`║ ${error?.message || error}\n`);
-    output += chalk.red.bold('╚═══════════════╝\n');
+    // Use UnifiedBorder for consistent error display
+    const { UnifiedBorder } = await import('./unifiedBorder.js');
+    output += '\n' + UnifiedBorder.drawError(error?.message || error);
     
     if (showSuggestions) {
       const suggestions = this.getSuggestions(error?.message || '');

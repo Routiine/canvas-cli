@@ -120,9 +120,7 @@ export class OrchestratorCommand {
     
     const textBoxResult = await showTextBox({
       title: '🎼 Orchestrator - Content Analysis',
-      placeholder: 'Enter the content you want to analyze for optimal model selection...',
-      enableFileImport: true,
-      autoDetectLanguage: true
+      placeholder: 'Enter the content you want to analyze for optimal model selection...'
     });
 
     if (!textBoxResult.content.trim()) {
@@ -141,9 +139,7 @@ export class OrchestratorCommand {
     
     const textBoxResult = await showTextBox({
       title: '🎼 Orchestrator - Auto Chat',
-      placeholder: 'Enter your message. I\'ll automatically select the best model and respond...',
-      enableFileImport: true,
-      autoDetectLanguage: true
+      placeholder: 'Enter your message. I\'ll automatically select the best model and respond...'
     });
 
     if (!textBoxResult.content.trim()) {

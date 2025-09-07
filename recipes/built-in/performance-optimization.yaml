@@ -1,0 +1,162 @@
+version: "1.0.0"
+title: "Performance Optimization"
+description: "Analyze and optimize application performance, identify bottlenecks, and implement improvements"
+author: "Canvas CLI Performance Team"
+tags:
+  - "performance"
+  - "optimization"
+  - "profiling"
+  - "benchmarking"
+
+instructions: |
+  This recipe analyzes your application's performance and implements optimizations:
+  - Runtime performance profiling
+  - Memory usage analysis
+  - Database query optimization
+  - Frontend performance (Core Web Vitals)
+  - API response time optimization
+  - Caching strategy implementation
+  - Code splitting and lazy loading
+
+parameters:
+  - key: target_path
+    input_type: directory
+    requirement: required
+    description: "Path to the application to optimize"
+    default: "."
+
+  - key: application_type
+    input_type: select
+    requirement: required
+    description: "Type of application"
+    default: "fullstack"
+    options:
+      - "frontend"
+      - "backend"
+      - "fullstack"
+      - "api"
+      - "mobile"
+
+  - key: performance_goals
+    input_type: multiselect
+    requirement: optional
+    description: "Specific performance goals to achieve"
+    options:
+      - "reduce_load_time"
+      - "optimize_memory"
+      - "improve_database"
+      - "enhance_api_response"
+      - "optimize_bundle_size"
+      - "improve_core_web_vitals"
+
+  - key: benchmark_first
+    input_type: boolean
+    requirement: optional
+    description: "Run benchmarks before optimization?"
+    default: "true"
+
+  - key: auto_implement
+    input_type: boolean
+    requirement: optional
+    description: "Automatically implement recommended optimizations?"
+    default: "false"
+
+  - key: target_improvement
+    input_type: number
+    requirement: optional
+    description: "Target performance improvement percentage"
+    default: "30"
+    validation:
+      min: 10
+      max: 90
+
+prompt: |
+  Analyze and optimize the {{ application_type }} application at {{ target_path }}.
+  
+  Performance Analysis:
+  1. Profile the application to identify performance bottlenecks
+  2. Analyze memory usage and detect memory leaks
+  3. Measure current performance metrics (load time, response time, etc.)
+  {% if application_type in ["backend", "fullstack", "api"] %}
+  4. Analyze database queries for N+1 problems and slow queries
+  5. Review API endpoint performance
+  {% endif %}
+  {% if application_type in ["frontend", "fullstack", "mobile"] %}
+  6. Measure Core Web Vitals (LCP, FID, CLS)
+  7. Analyze bundle size and loading performance
+  {% endif %}
+  
+  {% if benchmark_first %}
+  Run comprehensive benchmarks to establish baseline metrics.
+  {% endif %}
+  
+  Optimization Goals:
+  {% for goal in performance_goals %}
+  - {{ goal | replace("_", " ") | title }}
+  {% endfor %}
+  
+  Target: Achieve {{ target_improvement }}% performance improvement
+  
+  {% if auto_implement %}
+  Implement the following optimizations:
+  - Code optimization and refactoring
+  - Caching implementation
+  - Database index optimization
+  - Lazy loading and code splitting
+  - Image and asset optimization
+  - Performance monitoring setup
+  {% else %}
+  Provide detailed recommendations for each identified issue.
+  {% endif %}
+  
+  Generate a performance report showing:
+  - Before and after metrics
+  - Implemented optimizations
+  - Remaining opportunities
+  - Monitoring recommendations
+
+system_prompt: |
+  You are a performance optimization expert with deep knowledge of profiling,
+  benchmarking, and optimization techniques across different platforms and
+  technologies. You can identify bottlenecks, implement optimizations, and
+  measure improvements accurately.
+
+tools:
+  - "shell"
+  - "file"
+  - "web"
+
+model_preferences:
+  preferred_models:
+    - "claude-3-opus"
+    - "gpt-4"
+  min_context_length: 16384
+  requires_tools: true
+
+execution:
+  max_iterations: 15
+  timeout: 600
+  parallel: true
+
+examples:
+  - name: "Frontend Performance"
+    description: "Optimize a React application's performance"
+    parameters:
+      target_path: "./my-react-app"
+      application_type: "frontend"
+      performance_goals: "reduce_load_time,optimize_bundle_size,improve_core_web_vitals"
+      benchmark_first: "true"
+      auto_implement: "true"
+      target_improvement: "40"
+    expected_output: "Optimized bundle size, improved Core Web Vitals, 40% faster load time"
+
+  - name: "API Optimization"
+    description: "Optimize API response times and database queries"
+    parameters:
+      target_path: "./api-service"
+      application_type: "api"
+      performance_goals: "improve_database,enhance_api_response"
+      benchmark_first: "true"
+      auto_implement: "false"
+      target_improvement: "50"
+    expected_output: "Detailed optimization plan with database indexes and caching strategies"

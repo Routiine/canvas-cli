@@ -209,8 +209,8 @@ Canvas CLI is open source software licensed under the MIT License. See [LICENSE]
 </p>
 
 <p align="center">
-  <a href="https://canvas-cli.io">Website</a> •
-  <a href="https://docs.canvas-cli.io">Docs</a> •
+  <a href="https://canvas-cli.com>Website</a> •
+  <a href="https://docs.canvas-cli.com">Docs</a> •
   <a href="https://twitter.com/canvascli">Twitter</a> •
   <a href="https://github.com/canvas-cli/canvas-cli">GitHub</a>
 </p>

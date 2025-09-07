@@ -14,6 +14,8 @@ import { WorkflowEngine } from './tools/workflows.js';
 import { intentDetector } from './tools/intentDetector.js';
 import { interactiveMode } from './interactiveMode.js';
 import { OrchestratorCommand } from './commands/orchestratorCommand.js';
+import { configWizard } from './config/setup-wizard.js';
+import { configCommand } from './commands/config-command.js';
 
 export class CommandHandler {
   private themeManager: ThemeManager;
@@ -31,13 +33,15 @@ export class CommandHandler {
 
   constructor() {
     const config = loadConfig();
-    this.themeManager = new ThemeManager(config.theme);
+    // Load theme from config - check both old and new config structure
+    const themeName = config.theme || config.ui?.theme || 'default';
+    this.themeManager = new ThemeManager(themeName);
     this.checkpointManager = new CheckpointManager();
     this.toolRegistry = new ToolRegistry();
     this.contextLoader = new ContextLoader();
     this.workflowEngine = new WorkflowEngine(this.toolRegistry);
     this.orchestrator = new OrchestratorCommand();
-    this.vimMode = config.vimMode || false;
+    this.vimMode = config.vimMode || config.ui?.vimMode || false;
     this.loadCustomCommands();
   }
 
@@ -147,6 +151,23 @@ export class CommandHandler {
       case 'orch':
         return await this.orchestrator.execute(args ? args.split(' ').filter(Boolean) : []);
 
+      case 'config':
+        // Use the new robust config command
+        return await configCommand.execute(args);
+
+      case 'agentic':
+      case 'agents':
+        // Canvas agentic planning and development
+        const { agenticCommand } = await import('./commands/agentic-command.js');
+        return await agenticCommand.execute(args);
+
+      case 'recipe':
+      case 'r':
+        // Recipe management and execution
+        const { RecipeManager } = await import('./recipes/recipe-manager.js');
+        const recipeManager = new RecipeManager();
+        return await this.handleRecipeCommand(args, recipeManager);
+
       case 'quit':
       case 'exit':
         process.exit(0);
@@ -163,6 +184,9 @@ export class CommandHandler {
   private showHelp(): string {
     const commands = [
       { cmd: '/help, /?', desc: 'Show this help message' },
+      { cmd: '/config [show|set|get]', desc: 'Manage configuration' },
+      { cmd: '/agentic [plan|develop|execute]', desc: 'Canvas agentic planning & development' },
+      { cmd: '/recipe [list|run|create]', desc: 'Recipe management and execution' },
       { cmd: '/theme', desc: 'Change the visual theme' },
       { cmd: '/tools [desc]', desc: 'List available tools' },
       { cmd: '/chat save <tag>', desc: 'Save conversation checkpoint' },
@@ -179,6 +203,9 @@ export class CommandHandler {
       { cmd: '/compress', desc: 'Compress context to summary' },
       { cmd: '/copy', desc: 'Copy last output to clipboard' },
       { cmd: '/directory add <path>', desc: 'Add directory to workspace' },
+      { cmd: '/orchestrator', desc: 'AI model orchestration' },
+      { cmd: '/workflow [list|run]', desc: 'Manage workflows' },
+      { cmd: '/intent <text>', desc: 'Natural language execution' },
       { cmd: '/quit, /exit', desc: 'Exit Canvas CLI' }
     ];
 
@@ -548,5 +575,295 @@ This file provides context and instructions for the Canvas AI assistant in this 
     const intent = intentDetector.detectIntent(text);
     await intentDetector.executeIntent(intent, this.toolRegistry);
     return this.themeManager.success('Intent executed');
+  }
+
+  private async handleConfigCommand(args: string): Promise<string> {
+    const [subCommand, ...params] = args.split(' ');
+    const config = loadConfig();
+
+    switch (subCommand) {
+      case '':  // No subcommand - launch interactive config
+      case 'setup':
+      case 'wizard':
+        console.log(this.themeManager.info('Launching configuration wizard...'));
+        await configWizard.interactiveConfig();
+        return this.themeManager.success('Configuration complete');
+
+      case 'show':
+      case 'list':
+        let output = this.themeManager.primary('Current Configuration:\n\n');
+        
+        // Ollama Settings
+        output += this.themeManager.secondary('🤖 Ollama Settings:\n');
+        output += this.themeManager.dim(`  Base URL: ${config.ollamaUrl || config.ollama?.baseUrl || 'http://localhost:11434'}\n`);
+        output += this.themeManager.dim(`  Default Model: ${config.model || config.ollama?.defaultModel || 'llama3.2:latest'}\n`);
+        output += this.themeManager.dim(`  Timeout: ${config.ollama?.timeout || 120000}ms\n`);
+        
+        // UI Settings
+        output += this.themeManager.secondary('\n🎨 UI Settings:\n');
+        output += this.themeManager.dim(`  Theme: ${config.theme || config.ui?.theme || 'default'}\n`);
+        output += this.themeManager.dim(`  Vim Mode: ${config.vimMode || config.ui?.vimMode ? 'enabled' : 'disabled'}\n`);
+        output += this.themeManager.dim(`  Syntax Highlighting: ${config.ui?.syntaxHighlighting !== false ? 'enabled' : 'disabled'}\n`);
+        
+        // Features
+        output += this.themeManager.secondary('\n⚡ Features:\n');
+        output += this.themeManager.dim(`  Auto Execute: ${config.autoExecute || config.features?.autoExecute ? 'enabled' : 'disabled'}\n`);
+        output += this.themeManager.dim(`  Save History: ${config.features?.saveHistory !== false ? 'enabled' : 'disabled'}\n`);
+        output += this.themeManager.dim(`  MCP Servers: ${config.mcpServers?.length || 0}\n`);
+        
+        // Paths
+        output += this.themeManager.secondary('\n📁 Paths:\n');
+        output += this.themeManager.dim(`  Config: ${path.join(os.homedir(), '.canvas-cli', 'config.json')}\n`);
+        output += this.themeManager.dim(`  Sessions: ${config.paths?.sessionsDir || path.join(os.homedir(), '.canvas-cli', 'sessions')}\n`);
+        output += this.themeManager.dim(`  Logs: ${config.paths?.logsDir || path.join(os.homedir(), '.canvas-cli', 'logs')}\n`);
+        
+        return output;
+
+      case 'set':
+        if (params.length < 2) {
+          return this.themeManager.error('Usage: /config set <key> <value>\n' +
+            'Available keys:\n' +
+            '  ollama.url - Ollama API URL\n' +
+            '  ollama.model - Default model\n' +
+            '  theme - UI theme\n' +
+            '  vimMode - Enable/disable vim mode\n' +
+            '  autoExecute - Auto-execute commands');
+        }
+        const [key, ...values] = params;
+        const value = values.join(' ');
+
+        // Handle nested keys (e.g., ollama.url)
+        if (key.includes('.')) {
+          const [section, subkey] = key.split('.');
+          if (section === 'ollama') {
+            if (!config.ollama) {
+              config.ollama = {
+                baseUrl: config.ollamaUrl || 'http://localhost:11434',
+                defaultModel: config.model || config.defaultModel || 'llama3.2:latest'
+              };
+            }
+            switch (subkey) {
+              case 'url':
+              case 'baseUrl':
+                config.ollama.baseUrl = value;
+                config.ollamaUrl = value; // Also update legacy field
+                break;
+              case 'model':
+              case 'defaultModel':
+                config.ollama.defaultModel = value;
+                config.model = value; // Also update legacy field
+                break;
+              case 'timeout':
+                config.ollama.timeout = parseInt(value);
+                break;
+              default:
+                return this.themeManager.error(`Unknown ollama config: ${subkey}`);
+            }
+          } else {
+            return this.themeManager.error(`Unknown config section: ${section}`);
+          }
+        } else {
+          // Handle flat keys for backward compatibility
+          switch (key) {
+            case 'model':
+              config.model = value;
+              if (!config.ollama) {
+                config.ollama = {
+                  baseUrl: config.ollamaUrl || 'http://localhost:11434',
+                  defaultModel: value
+                };
+              } else {
+                config.ollama.defaultModel = value;
+              }
+              break;
+            case 'ollamaUrl':
+              config.ollamaUrl = value;
+              if (!config.ollama) {
+                config.ollama = {
+                  baseUrl: value,
+                  defaultModel: config.model || config.defaultModel || 'llama3.2:latest'
+                };
+              } else {
+                config.ollama.baseUrl = value;
+              }
+              break;
+            case 'theme':
+              config.theme = value;
+              this.themeManager.setTheme(value);
+              break;
+            case 'vim':
+            case 'vimMode':
+              config.vimMode = value === 'true' || value === 'on' || value === '1';
+              this.vimMode = config.vimMode;
+              break;
+            case 'autoExecute':
+              config.autoExecute = value === 'true' || value === 'on' || value === '1';
+              break;
+            default:
+              return this.themeManager.error(`Unknown config key: ${key}`);
+          }
+        }
+
+        saveConfig(config);
+        return this.themeManager.success(`Configuration updated: ${key} = ${value}`);
+
+      case 'get':
+        if (!params[0]) {
+          return this.themeManager.error('Usage: /config get <key>');
+        }
+        const getValue = config[params[0] as keyof typeof config];
+        if (getValue !== undefined) {
+          return this.themeManager.info(`${params[0]}: ${getValue}`);
+        }
+        return this.themeManager.error(`Unknown config key: ${params[0]}`);
+
+      case 'reset':
+        const defaultConfig = {
+          model: 'gpt-oss:latest',
+          theme: 'default',
+          vimMode: false,
+          autoExecute: false,
+          mcpServers: []
+        };
+        saveConfig(defaultConfig);
+        this.themeManager.setTheme('default');
+        this.vimMode = false;
+        return this.themeManager.success('Configuration reset to defaults');
+
+      case 'edit':
+        return await this.openSettings();
+
+      case 'test':
+      case 'test-ollama':
+        const ollamaUrl = config.ollamaUrl || config.ollama?.baseUrl || 'http://localhost:11434';
+        console.log(this.themeManager.info(`Testing connection to Ollama at ${ollamaUrl}...`));
+        
+        try {
+          const response = await fetch(`${ollamaUrl}/api/tags`);
+          if (response.ok) {
+            const data = await response.json();
+            const models = data.models || [];
+            let output = this.themeManager.success('✅ Ollama connection successful!\n');
+            if (models.length > 0) {
+              output += this.themeManager.secondary('\nAvailable models:\n');
+              models.forEach((model: any) => {
+                output += this.themeManager.dim(`  - ${model.name}\n`);
+              });
+            } else {
+              output += this.themeManager.warning('\n⚠️  No models found. Run: ollama pull llama3.2');
+            }
+            return output;
+          } else {
+            return this.themeManager.error(`❌ Ollama responded with status: ${response.status}`);
+          }
+        } catch (error: any) {
+          return this.themeManager.error(`❌ Could not connect to Ollama: ${error.message}\n` +
+            this.themeManager.dim('Make sure Ollama is running: ollama serve'));
+        }
+
+      default:
+        return this.themeManager.error('Usage: /config [show|set|get|reset|edit|setup|test] [key] [value]');
+    }
+  }
+
+  private async handleRecipeCommand(args: string, recipeManager: any): Promise<string> {
+    const [subCommand, ...rest] = args.split(' ');
+    const recipeName = rest[0];
+    const params = rest.slice(1).join(' ');
+
+    switch (subCommand) {
+      case 'list':
+      case 'ls':
+        try {
+          await recipeManager.loadLibraries();
+          const recipes = await recipeManager.listRecipes();
+          
+          if (recipes.length === 0) {
+            return this.themeManager.warning('No recipes found. Create one with: /recipe create');
+          }
+          
+          let output = this.themeManager.primary('Available Recipes:\n\n');
+          
+          // Group by category
+          const grouped = recipes.reduce((acc: any, item: any) => {
+            const category = item.path.includes('built-in') ? 'Built-in' :
+                          item.path.includes('community') ? 'Community' : 'Custom';
+            if (!acc[category]) acc[category] = [];
+            acc[category].push(item);
+            return acc;
+          }, {});
+          
+          Object.entries(grouped).forEach(([category, items]: [string, any]) => {
+            output += this.themeManager.secondary(`${category}:\n`);
+            items.forEach((item: any) => {
+              output += `  ${this.themeManager.success(item.name)}\n`;
+              output += `    ${this.themeManager.dim(item.recipe.description)}\n`;
+            });
+            output += '\n';
+          });
+          
+          return output;
+        } catch (error: any) {
+          return this.themeManager.error(`Failed to list recipes: ${error.message}`);
+        }
+
+      case 'run':
+      case 'exec':
+        if (!recipeName) {
+          return this.themeManager.error('Usage: /recipe run <recipe-name> [parameters]');
+        }
+        
+        try {
+          await recipeManager.loadLibraries();
+          const recipe = await recipeManager.findRecipe(recipeName);
+          
+          if (!recipe) {
+            return this.themeManager.error(`Recipe '${recipeName}' not found`);
+          }
+          
+          // Parse parameters from command line
+          let parameters: Record<string, string> = {};
+          if (params) {
+            // Simple key=value parsing
+            const pairs = params.match(/(\w+)=([^\s]+)/g);
+            if (pairs) {
+              pairs.forEach(pair => {
+                const [key, value] = pair.split('=');
+                parameters[key] = value;
+              });
+            }
+          }
+          
+          // Execute recipe
+          const result = await recipeManager.executeRecipe(recipeName, parameters);
+          
+          if (result.success) {
+            return this.themeManager.success(`Recipe executed successfully!\n\n${result.output}`);
+          } else {
+            return this.themeManager.error(`Recipe failed: ${result.error}`);
+          }
+        } catch (error: any) {
+          return this.themeManager.error(`Failed to run recipe: ${error.message}`);
+        }
+
+      case 'create':
+      case 'new':
+        return this.themeManager.info('To create a new recipe interactively, run:\n' +
+          'canvas recipe create\n\n' +
+          'Or create a YAML file manually in recipes/custom/');
+
+      case 'help':
+      case '?':
+        return this.themeManager.primary('Recipe Commands:\n\n') +
+          `  ${this.themeManager.secondary('/recipe list')}     ${this.themeManager.dim('List available recipes')}\n` +
+          `  ${this.themeManager.secondary('/recipe run')}      ${this.themeManager.dim('Execute a recipe')}\n` +
+          `  ${this.themeManager.secondary('/recipe create')}   ${this.themeManager.dim('Create a new recipe')}\n` +
+          `  ${this.themeManager.secondary('/recipe help')}     ${this.themeManager.dim('Show this help')}\n\n` +
+          this.themeManager.dim('Example: /recipe run quick-start project_name=my-app');
+
+      default:
+        return this.themeManager.error(`Unknown recipe command: ${subCommand}\n` +
+          'Use /recipe help for available commands');
+    }
   }
 }
