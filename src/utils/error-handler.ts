@@ -81,12 +81,12 @@ export class ErrorHandler extends EventEmitter {
 
     // Handle SIGINT (Ctrl+C)
     process.on('SIGINT', () => {
-      this.handleGracefulShutdown('SIGINT');
+      void this.handleGracefulShutdown('SIGINT');
     });
 
     // Handle SIGTERM
     process.on('SIGTERM', () => {
-      this.handleGracefulShutdown('SIGTERM');
+      void this.handleGracefulShutdown('SIGTERM');
     });
   }
 

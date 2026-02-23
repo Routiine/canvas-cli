@@ -3,7 +3,8 @@
  * Integrates communication capabilities into existing agents
  */
 
-import { AgentCommunicationHub, AgentMessage, CoordinationPatterns } from './agent-communication.js';
+import type { AgentMessage} from './agent-communication.js';
+import { AgentCommunicationHub, CoordinationPatterns } from './agent-communication.js';
 import { AgentMemory } from '../memory/agent-memory.js';
 import { EventEmitter } from 'events';
 
@@ -41,7 +42,7 @@ export class CommunicationMixin extends EventEmitter implements CommunicationCap
     this.collaborations = new Map();
 
     // Register with communication hub
-    this.registerWithHub(capabilities);
+    void this.registerWithHub(capabilities);
     
     // Set up default message handlers
     this.setupDefaultHandlers();

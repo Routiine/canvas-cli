@@ -37,7 +37,7 @@ export class FileWatcherManager extends EventEmitter {
     watcher
       .on('add', (filePath) => {
         console.log(chalk.green(`📄 File added: ${filePath}`));
-        this.updateFileHash(filePath);
+        void this.updateFileHash(filePath);
         changes.push({ type: 'added', path: filePath, timestamp: new Date() });
         this.emit('fileAdded', filePath);
       })
@@ -246,7 +246,7 @@ export class AutoReloadContextTool extends BaseTool {
 
         // Set new debounce timer
         AutoReloadContextTool.debounceTimer = setTimeout(() => {
-          this.processChanges(AutoReloadContextTool.pendingChanges);
+          void this.processChanges(AutoReloadContextTool.pendingChanges);
           AutoReloadContextTool.pendingChanges = [];
         }, debounceTime);
       });

@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import { AgentMessage } from './agent-communication.js';
+import type { AgentMessage } from './agent-communication.js';
 
 export interface TokenUsageMetrics {
   originalTokens: number;

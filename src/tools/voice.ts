@@ -3,7 +3,7 @@
  * Similar to Kilo Code's voice prompting capabilities
  */
 
-import { Tool } from '../types.js';
+import type { Tool } from '../types.js';
 import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs-extra';
@@ -20,7 +20,7 @@ interface VoiceConfig {
 }
 
 // Default configuration
-let voiceConfig: VoiceConfig = {
+const voiceConfig: VoiceConfig = {
   engine: 'whisper',
   language: 'en',
   model: 'base'

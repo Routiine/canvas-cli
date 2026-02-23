@@ -589,7 +589,7 @@ docker cp <container-id>:/path/to/file ./local-path
       return [];
     }
 
-    let suggestions: Array<{ item: KnowledgeItem; score: number }> = [];
+    const suggestions: Array<{ item: KnowledgeItem; score: number }> = [];
     
     for (const item of this.knowledgeItems.values()) {
       if (!this.canRead(item)) continue;

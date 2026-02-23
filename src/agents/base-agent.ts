@@ -4,7 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { AgentConfig, AgentResult, AgentLogger, AgentStatus, AgentMetrics } from './agent-types.js';
+import type { AgentConfig, AgentResult, AgentLogger, AgentStatus, AgentMetrics } from './agent-types.js';
 import axios from 'axios';
 import { loadConfig } from '../config.js';
 

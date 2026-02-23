@@ -4,9 +4,9 @@
  */
 
 import { EventEmitter } from 'events';
-import { Worker } from 'worker_threads';
+import type { Worker } from 'worker_threads';
 import * as os from 'os';
-import { StoryContext } from '../canvas-agents.js';
+import type { StoryContext } from '../canvas-agents.js';
 import { AgentMemory } from '../memory/agent-memory.js';
 import { z } from 'zod';
 
@@ -661,7 +661,7 @@ export class ParallelStoryExecutor extends EventEmitter {
   async cleanup(): Promise<void> {
     // Terminate workers
     for (const worker of this.workers) {
-      worker.terminate();
+      void worker.terminate();
     }
     
     this.workers = [];

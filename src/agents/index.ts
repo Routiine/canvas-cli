@@ -3,8 +3,8 @@
  * Similar to Claude Code's Task agents - specialized agents for different tasks
  */
 
-import { ThemeManager } from '../themes.js';
-import { ToolRegistry } from '../tools/registry.js';
+import type { ThemeManager } from '../themes.js';
+import type { ToolRegistry } from '../tools/registry.js';
 import { loadConfig } from '../config.js';
 
 export type AgentType =

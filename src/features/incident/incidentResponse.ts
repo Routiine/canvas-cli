@@ -534,7 +534,7 @@ class IncidentResponseMode extends EventEmitter {
 
     // Auto-execute if it's a command and automation is enabled
     if (type === 'command' && options.automated && options.command) {
-      this.executeAction(incidentId, actionId);
+      void this.executeAction(incidentId, actionId);
     }
 
     return actionId;
@@ -709,7 +709,7 @@ class IncidentResponseMode extends EventEmitter {
       if (playbookAction.delay && playbookAction.delay > 0) {
         setTimeout(() => {
           if (playbookAction.automated) {
-            this.executeAction(incident.id, actionId);
+            void this.executeAction(incident.id, actionId);
           }
         }, playbookAction.delay);
       } else if (playbookAction.automated) {

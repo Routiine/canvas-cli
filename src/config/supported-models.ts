@@ -558,7 +558,7 @@ export function getBestModelForTask(task: string, preferLocal: boolean = true): 
   const requiredCapabilities = taskCapabilities[task] || ['code-generation'];
   
   // Get models with required capabilities
-  let candidates: ModelSpec[] = [];
+  const candidates: ModelSpec[] = [];
   for (const capability of requiredCapabilities) {
     candidates.push(...getModelsByCapability(capability));
   }

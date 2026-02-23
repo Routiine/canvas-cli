@@ -111,7 +111,7 @@ export class AIAutofillSystem extends EventEmitter {
       keyboardShortcuts: true
     };
 
-    this.loadConfig();
+    void this.loadConfig();
     this.setupCommandPatterns();
   }
 
@@ -731,7 +731,7 @@ export class AIAutofillSystem extends EventEmitter {
 
   updateConfig(updates: Partial<AutofillConfig>): void {
     this.config = { ...this.config, ...updates };
-    this.saveConfig();
+    void this.saveConfig();
     console.log(chalk.green('✅ Autofill configuration updated'));
     this.emit('config-updated', this.config);
   }

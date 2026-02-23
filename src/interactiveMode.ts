@@ -1,6 +1,6 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import { ToolRegistry } from './tools/registry.js';
+import type { ToolRegistry } from './tools/registry.js';
 import { intentDetector } from './tools/intentDetector.js';
 
 export class InteractiveMode {

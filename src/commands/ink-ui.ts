@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { startInkUIFixed } from '../ui/ink/indexFixed.js';
 import { render } from 'ink';
 import React from 'react';
@@ -86,7 +86,7 @@ export function registerInkUICommand(program: Command) {
             onCommand: processCommand
           }));
           
-          app.waitUntilExit().then(() => {
+          void app.waitUntilExit().then(() => {
             if (process.stdin.setRawMode) {
               process.stdin.setRawMode(false);
             }

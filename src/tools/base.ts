@@ -1,4 +1,5 @@
-import { Tool, ToolParameterDefinition, getErrorMessage } from '../types.js';
+import type { Tool, ToolParameterDefinition} from '../types.js';
+import { getErrorMessage } from '../types.js';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 

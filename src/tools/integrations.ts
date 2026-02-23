@@ -3,7 +3,7 @@
  * Provides tool-compatible interfaces for third-party integrations
  */
 
-import { Tool } from '../types.js';
+import type { Tool } from '../types.js';
 import { gitlab } from './gitlab.js';
 import { jira } from './jira.js';
 import { slack } from './slack.js';

@@ -57,7 +57,7 @@ export function createChatCommand(): Command {
 
 async function runInteractiveChat(model: string, commandHandler: CommandHandler): Promise<void> {
   let executionMode = true;
-  let conversationHistory: string[] = [];
+  const conversationHistory: string[] = [];
 
   // Populate conversation history from restored session
   const savedMessages = commandHandler.getMessages();

@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { Config } from './types.js';
+import type { Config } from './types.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.canvas-cli');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');

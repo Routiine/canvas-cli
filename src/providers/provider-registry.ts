@@ -2,7 +2,7 @@
  * Provider registry for managing multiple AI providers
  */
 
-import { Provider, ProviderMetadata, ProviderConfig } from './base-provider.js';
+import type { Provider, ProviderMetadata, ProviderConfig } from './base-provider.js';
 import { OllamaProvider } from './ollama-provider.js';
 
 export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'google';

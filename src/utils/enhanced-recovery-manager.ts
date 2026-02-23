@@ -113,7 +113,7 @@ export class EnhancedRecoveryManager extends EventEmitter {
     this.recoveryPath = path.join(process.cwd(), '.canvas-cli', 'recovery');
     this.checkpointsPath = path.join(this.recoveryPath, 'checkpoints');
     this.ensureRecoveryDirectories();
-    this.loadCheckpoints();
+    void this.loadCheckpoints();
     this.setupRecoveryHandlers();
     this.startAutoCheckpointing();
   }

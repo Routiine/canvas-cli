@@ -3,7 +3,8 @@
  * Intelligent project planning and context-engineered development
  */
 
-import { CanvasAgentSystem, StoryContext } from '../agents/canvas-agents.js';
+import type { StoryContext } from '../agents/canvas-agents.js';
+import { CanvasAgentSystem } from '../agents/canvas-agents.js';
 import { loadConfig } from '../config.js';
 import { ThemeManager } from '../themes.js';
 import { UnifiedBorder } from '../ui/unifiedBorder.js';

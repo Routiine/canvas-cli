@@ -154,7 +154,7 @@ export class ConfigManager {
     this.configPath = this.globalConfigPath;
     
     this.config = this.loadDefaultConfig();
-    this.initialize();
+    void this.initialize();
   }
 
   /**

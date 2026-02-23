@@ -1,5 +1,5 @@
 import { BaseTool } from './base.js';
-import { ToolRegistry } from './registry.js';
+import type { ToolRegistry } from './registry.js';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
@@ -25,7 +25,7 @@ export class DynamicToolCreator extends BaseTool {
   constructor(private registry: ToolRegistry) {
     super();
     fs.ensureDirSync(this.toolsDir);
-    this.loadCustomTools();
+    void this.loadCustomTools();
   }
 
   async execute(params: {

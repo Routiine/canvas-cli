@@ -2,7 +2,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
 import chalk from 'chalk';
-import { Message } from '../types.js';
+import type { Message } from '../types.js';
 
 export interface TranscriptEntry {
   timestamp: Date;

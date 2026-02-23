@@ -14,18 +14,22 @@
 
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
-import {
+import type {
   ExecutionPlan,
   ExecutionStep,
-  ExecutionStatus,
-  TaskType,
   PlanMetadata,
   PlanningConfig,
-  DEFAULT_PLANNING_CONFIG,
   ProgressCallback
 } from './types.js';
-import { getOllamaBackend, OllamaBackend } from './ollama-backend.js';
-import { getReasoningEngine, ReasoningEngine } from './reasoning-engine.js';
+import {
+  ExecutionStatus,
+  TaskType,
+  DEFAULT_PLANNING_CONFIG
+} from './types.js';
+import type { OllamaBackend } from './ollama-backend.js';
+import { getOllamaBackend } from './ollama-backend.js';
+import type { ReasoningEngine } from './reasoning-engine.js';
+import { getReasoningEngine } from './reasoning-engine.js';
 
 // ============================================================================
 // Types

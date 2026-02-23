@@ -114,8 +114,8 @@ export class PerformanceDashboard extends EventEmitter {
       soundAlerts: true
     };
     
-    this.loadConfig();
-    this.loadHistory();
+    void this.loadConfig();
+    void this.loadHistory();
     this.setupDefaultMetrics();
     this.setupDefaultAlerts();
   }
@@ -223,7 +223,7 @@ export class PerformanceDashboard extends EventEmitter {
     // Setup auto-refresh
     if (this.config.autoRefresh) {
       this.refreshTimer = setInterval(() => {
-        this.collectSystemStats();
+        void this.collectSystemStats();
       }, this.config.refreshInterval);
     }
 
@@ -558,7 +558,7 @@ export class PerformanceDashboard extends EventEmitter {
     }
     
     this.emit('command-tracked', performance);
-    this.saveHistory();
+    void this.saveHistory();
   }
 
   private async collectSystemStats(): Promise<void> {
@@ -657,7 +657,7 @@ export class PerformanceDashboard extends EventEmitter {
 
   updateConfig(updates: Partial<DashboardConfig>): void {
     this.config = { ...this.config, ...updates };
-    this.saveConfig();
+    void this.saveConfig();
     this.emit('config-updated', this.config);
   }
 

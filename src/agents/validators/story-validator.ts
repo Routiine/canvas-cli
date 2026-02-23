@@ -466,7 +466,7 @@ export class StoryValidator {
     };
     
     let totalScore = 0;
-    let totalMetrics = {
+    const totalMetrics = {
       completeness: 0,
       clarity: 0,
       testability: 0,

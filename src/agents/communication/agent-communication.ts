@@ -4,7 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { AgentMemory } from '../memory/agent-memory.js';
+import type { AgentMemory } from '../memory/agent-memory.js';
 import { z } from 'zod';
 
 // Message schema

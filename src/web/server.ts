@@ -5,7 +5,8 @@ import { createServer } from 'http';
 import path from 'path';
 import fs from 'fs-extra';
 import chalk from 'chalk';
-import { Message, Tool } from '../types.js';
+import type { Message} from '../types.js';
+import { Tool } from '../types.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { CheckpointManager } from '../checkpoint.js';
 import { ThemeManager } from '../themes.js';
@@ -228,7 +229,7 @@ export class WebUIServer {
 
   async stop(): Promise<void> {
     return new Promise((resolve) => {
-      this.io.close();
+      void this.io.close();
       this.server.close(() => {
         console.log(chalk.yellow('Web UI server stopped'));
         resolve();

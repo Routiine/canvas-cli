@@ -3,7 +3,7 @@
  * Similar to Kilo Code's managed indexing capabilities
  */
 
-import { Tool } from '../types.js';
+import type { Tool } from '../types.js';
 import fs from 'fs-extra';
 import path from 'path';
 import crypto from 'crypto';
@@ -245,7 +245,7 @@ function searchIndex(index: CodebaseIndex, query: string, options: {
   const queryLower = query.toLowerCase();
   const queryWords = queryLower.split(/\s+/);
 
-  let results = index.chunks.filter(chunk => {
+  const results = index.chunks.filter(chunk => {
     // Filter by type if specified
     if (options.type && chunk.type !== options.type) return false;
 

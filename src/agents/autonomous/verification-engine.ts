@@ -17,17 +17,19 @@ import { exec, ExecException } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import {
+import type {
   VerificationReport,
-  VerificationResult,
   VerificationCheck,
   VerificationConfig,
   DiffAnalysis,
   SemanticChange,
-  ExecutionStep,
+  ExecutionStep} from './types.js';
+import {
+  VerificationResult,
   DEFAULT_VERIFICATION_CONFIG
 } from './types.js';
-import { getOllamaBackend, OllamaBackend } from './ollama-backend.js';
+import type { OllamaBackend } from './ollama-backend.js';
+import { getOllamaBackend } from './ollama-backend.js';
 
 const execAsync = promisify(exec);
 
@@ -324,7 +326,7 @@ export class VerificationEngine extends EventEmitter {
 
     // Basic indentation check
     const lines = code.split('\n');
-    let expectedIndent = 0;
+    const expectedIndent = 0;
     const indentStack: number[] = [0];
 
     for (let i = 0; i < lines.length; i++) {
@@ -604,7 +606,7 @@ Output JSON:
     let linesRemoved = 0;
     const semanticChanges: SemanticChange[] = [];
     const potentialIssues: string[] = [];
-    let syntaxValid = true;
+    const syntaxValid = true;
 
     for (const change of fileChanges) {
       if (change.diff) {

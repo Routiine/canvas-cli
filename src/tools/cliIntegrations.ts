@@ -16,7 +16,7 @@ abstract class CLIIntegration extends BaseTool {
   constructor(toolCommand: string) {
     super();
     this.toolCommand = toolCommand;
-    this.checkInstallation();
+    void this.checkInstallation();
   }
   
   protected async checkInstallation(): Promise<boolean> {

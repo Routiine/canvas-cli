@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import { ModelOrchestrator, ContentAnalysis, ModelRecommendation } from '../orchestrator/modelOrchestrator.js';
+import type { ModelRecommendation } from '../orchestrator/modelOrchestrator.js';
+import { ModelOrchestrator, ContentAnalysis } from '../orchestrator/modelOrchestrator.js';
 import { showTextBox } from '../ui/textBox.js';
 import { loadConfig, saveConfig } from '../config.js';
 import axios from 'axios';
@@ -175,7 +176,7 @@ export class OrchestratorCommand {
    * Auto-select model and execute
    */
   private async autoSelectAndRun(args: string[]): Promise<string> {
-    let content = args.join(' ');
+    const content = args.join(' ');
     
     if (!content) {
       return chalk.yellow('❌ Please provide content after "orchestrator auto"');

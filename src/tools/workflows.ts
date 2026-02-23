@@ -1,4 +1,4 @@
-import { ToolRegistry } from './registry.js';
+import type { ToolRegistry } from './registry.js';
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'path';
@@ -154,7 +154,7 @@ export class WorkflowEngine {
     console.log(chalk.dim(workflow.description));
 
     const results: any[] = [];
-    let currentParams = initialParams;
+    const currentParams = initialParams;
 
     for (let i = 0; i < workflow.steps.length; i++) {
       const step = workflow.steps[i];

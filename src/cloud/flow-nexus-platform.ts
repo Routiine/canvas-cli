@@ -4,7 +4,8 @@
  */
 
 import { EventEmitter } from 'events';
-import axios, { AxiosInstance } from 'axios';
+import type { AxiosInstance } from 'axios';
+import axios from 'axios';
 import WebSocket from 'ws';
 import FormData from 'form-data';
 import { v4 as uuidv4 } from 'uuid';
@@ -991,14 +992,14 @@ export class FlowNexusPlatform extends EventEmitter {
 
   // Subscribe to real-time updates
   subscribe(resourceType: 'sandbox' | 'deployment' | 'pipeline', resourceId: string): void {
-    this.sendCommand({
+    void this.sendCommand({
       type: 'subscribe',
       target: `${resourceType}:${resourceId}`
     });
   }
 
   unsubscribe(resourceType: 'sandbox' | 'deployment' | 'pipeline', resourceId: string): void {
-    this.sendCommand({
+    void this.sendCommand({
       type: 'unsubscribe',
       target: `${resourceType}:${resourceId}`
     });

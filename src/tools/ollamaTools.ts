@@ -7,7 +7,7 @@
 
 import axios from 'axios';
 import chalk from 'chalk';
-import { Tool } from '../types.js';
+import type { Tool } from '../types.js';
 
 export interface OllamaToolFunction {
   name: string;

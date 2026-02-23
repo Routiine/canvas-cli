@@ -234,7 +234,7 @@ class CommandDiffing extends EventEmitter {
     
     // Simple character-by-character comparison
     const maxLen = Math.max(str1.length, str2.length);
-    let diffType: DiffResult['type'] = 'modified';
+    const diffType: DiffResult['type'] = 'modified';
     
     for (let i = 0; i < maxLen; i++) {
       const char1 = str1[i];

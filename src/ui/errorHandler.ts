@@ -345,7 +345,7 @@ export function tryCatch<T>(
   try {
     return fn();
   } catch (error) {
-    EnhancedErrorHandler.handle(error, context);
+    void EnhancedErrorHandler.handle(error, context);
     return fallback;
   }
 }

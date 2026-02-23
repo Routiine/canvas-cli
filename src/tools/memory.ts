@@ -3,7 +3,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
 import chalk from 'chalk';
-import { MemoryContext } from '../types.js';
+import type { MemoryContext } from '../types.js';
 
 export class MemoryTool extends BaseTool {
   name = 'save_memory';

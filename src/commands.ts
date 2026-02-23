@@ -13,7 +13,7 @@ import { ThemeManager } from './themes.js';
 import { CheckpointManager } from './checkpoint.js';
 import { ToolRegistry } from './tools/registry.js';
 import { ContextLoader } from './tools/memory.js';
-import { Message, TokenUsage } from './types.js';
+import type { Message, TokenUsage } from './types.js';
 import { loadConfig, saveConfig } from './config.js';
 import { WorkflowEngine } from './tools/workflows.js';
 import { intentDetector } from './tools/intentDetector.js';
@@ -94,7 +94,7 @@ export class CommandHandler {
     this.workflowHandler = new WorkflowHandler(this.themeManager, this.workflowEngine);
     this.skillHandler = new SkillHandler(this.themeManager);
 
-    this.loadCustomCommands();
+    void this.loadCustomCommands();
   }
 
   private async loadCustomCommands(): Promise<void> {
@@ -465,7 +465,7 @@ export class CommandHandler {
     output += `  ${this.themeManager.dim('core:')} ${summary.core}  ${this.themeManager.dim('extra:')} ${summary.extra}  ${this.themeManager.dim('total:')} ${summary.total}\n\n`;
 
     // Get tools based on filter
-    let tools = showCore ? this.toolRegistry.listCore() :
+    const tools = showCore ? this.toolRegistry.listCore() :
                 showExtra ? this.toolRegistry.listExtra() :
                 this.toolRegistry.listEnabled();
 
@@ -706,7 +706,7 @@ This file provides context and instructions for the Canvas AI assistant in this 
 
         try {
           await recipeManager.loadLibraries();
-          let parameters: Record<string, string> = {};
+          const parameters: Record<string, string> = {};
           if (params) {
             const pairs = params.match(/(\w+)=([^\s]+)/g);
             if (pairs) {

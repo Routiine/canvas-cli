@@ -339,8 +339,8 @@ export class ToolExecutor extends EventEmitter {
     toolUsage: Record<string, number>;
   } {
     const toolUsage: Record<string, number> = {};
-    let totalDuration = 0;
-    let successCount = 0;
+    const totalDuration = 0;
+    const successCount = 0;
 
     for (const execution of this.executionHistory) {
       toolUsage[execution.toolName] = (toolUsage[execution.toolName] || 0) + 1;

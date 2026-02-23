@@ -7,8 +7,8 @@ import chalk from 'chalk';
 import { loadConfig } from '../config.js';
 import { OllamaClient, getOllamaClient, checkOllamaConnection } from './client.js';
 import type { OllamaGenerateRequest, OllamaGenerateResponse, TokenCount } from './types.js';
-import { Message } from '../types.js';
-import { CommandHandler } from '../commands.js';
+import type { Message } from '../types.js';
+import type { CommandHandler } from '../commands.js';
 import { AnimatedSpinner } from '../ui/spinner.js';
 import { parseToolCalls } from '../toolPrompt.js';
 import { forceToolExecution, getSimpleToolPrompt, getNextStepPrompt } from '../tools/forceExecute.js';
@@ -288,7 +288,7 @@ export async function generateResponseWithTools(
           }
 
           const data = response.data;
-          let stepResponse = data.response || '';
+          const stepResponse = data.response || '';
 
           // Debug: show what AI responded with (first 100 chars)
           if (process.env.DEBUG) {
@@ -310,7 +310,7 @@ export async function generateResponseWithTools(
             for (const tc of data.tool_calls) {
               if (tc.function) {
                 // Clean up tool name - strip prefixes like "TOOL:" and normalize
-                let modelTool = (tc.function.name || '').replace(/^TOOL:/i, '').trim();
+                const modelTool = (tc.function.name || '').replace(/^TOOL:/i, '').trim();
 
                 // Arguments might be a string (JSON) or already an object
                 let args = tc.function.arguments || {};
@@ -459,7 +459,7 @@ export async function generateResponseWithTools(
           // Execute shell commands and continue to next step
           if (shellCommands.length > 0) {
             let stepSuccess = true;
-            for (let cmd of shellCommands) {
+            for (const cmd of shellCommands) {
               // Handle cd commands - track directory but don't execute alone
               if (cmd.startsWith('cd ')) {
                 const cdTarget = cmd.slice(3).trim();
@@ -605,9 +605,9 @@ export async function generateResponseWithTools(
 
     const stream = response.data;
     let fullResponse = '';
-    let tokenCount: TokenCount = { input: 0, output: 0 };
+    const tokenCount: TokenCount = { input: 0, output: 0 };
     let isResolved = false;
-    let nativeToolCalls: Array<{ name: string; parameters: any }> = [];
+    const nativeToolCalls: Array<{ name: string; parameters: any }> = [];
 
     await new Promise<void>((resolve, reject) => {
       const safeResolve = () => {

@@ -95,9 +95,9 @@ export class SecretRedactionSystem extends EventEmitter {
       scanInput: true
     };
     
-    this.loadConfig();
+    void this.loadConfig();
     this.setupDefaultPatterns();
-    this.loadCustomPatterns();
+    void this.loadCustomPatterns();
   }
 
   private generateEncryptionKey(): string {
@@ -468,7 +468,7 @@ export class SecretRedactionSystem extends EventEmitter {
 
     this.patterns.set(id, newPattern);
     this.config.customPatterns.push(newPattern);
-    this.saveCustomPatterns();
+    void this.saveCustomPatterns();
 
     console.log(chalk.green(`✅ Added pattern: ${pattern.name}`));
     this.emit('pattern-added', newPattern);
@@ -482,7 +482,7 @@ export class SecretRedactionSystem extends EventEmitter {
 
     this.patterns.delete(patternId);
     this.config.customPatterns = this.config.customPatterns.filter(p => p.id !== patternId);
-    this.saveCustomPatterns();
+    void this.saveCustomPatterns();
 
     console.log(chalk.yellow(`🗑️ Removed pattern: ${pattern.name}`));
     this.emit('pattern-removed', pattern);
@@ -495,7 +495,7 @@ export class SecretRedactionSystem extends EventEmitter {
     if (!pattern) return false;
 
     pattern.enabled = !pattern.enabled;
-    this.saveCustomPatterns();
+    void this.saveCustomPatterns();
 
     const status = pattern.enabled ? 'enabled' : 'disabled';
     console.log(chalk.blue(`🔄 Pattern ${pattern.name} ${status}`));
@@ -515,7 +515,7 @@ export class SecretRedactionSystem extends EventEmitter {
   addToWhitelist(value: string): void {
     if (!this.config.whitelist.includes(value)) {
       this.config.whitelist.push(value);
-      this.saveConfig();
+      void this.saveConfig();
       console.log(chalk.green(`✅ Added to whitelist: ${value}`));
     }
   }
@@ -524,7 +524,7 @@ export class SecretRedactionSystem extends EventEmitter {
     const index = this.config.whitelist.indexOf(value);
     if (index > -1) {
       this.config.whitelist.splice(index, 1);
-      this.saveConfig();
+      void this.saveConfig();
       console.log(chalk.yellow(`🗑️ Removed from whitelist: ${value}`));
     }
   }
@@ -539,7 +539,7 @@ export class SecretRedactionSystem extends EventEmitter {
       this.redactionHistory.splice(0, this.redactionHistory.length - 1000);
     }
 
-    this.saveRedactionHistory();
+    void this.saveRedactionHistory();
     this.emit('redaction-logged', result);
   }
 
@@ -620,7 +620,7 @@ export class SecretRedactionSystem extends EventEmitter {
 
   updateConfig(updates: Partial<RedactionConfig>): void {
     this.config = { ...this.config, ...updates };
-    this.saveConfig();
+    void this.saveConfig();
     console.log(chalk.green('✅ Configuration updated'));
     this.emit('config-updated', this.config);
   }

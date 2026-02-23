@@ -522,7 +522,7 @@ export class CodeValidator extends EventEmitter {
   private calculateMetrics(files: any[], testFiles: any[]): CodeMetrics {
     let totalLines = 0;
     let totalComplexity = 0;
-    let duplicateLines = 0;
+    const duplicateLines = 0;
     let codeSmells = 0;
     
     for (const file of files) {

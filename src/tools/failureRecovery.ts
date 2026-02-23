@@ -3,7 +3,7 @@
  * Similar to Kilo Code's automatic failure recovery
  */
 
-import { Tool } from '../types.js';
+import type { Tool } from '../types.js';
 import { exec, spawn, execFile } from 'child_process';
 import { promisify } from 'util';
 import { promises as fsPromises } from 'fs';
@@ -343,7 +343,7 @@ export class WatchAndRecoverTool implements Tool {
 
             // Restart after delay
             setTimeout(() => {
-              runProcess().then(resolve);
+              void runProcess().then(resolve);
             }, 2000);
           } else {
             resolve(`Process exited with code ${code}. Restarts: ${restartCount}`);

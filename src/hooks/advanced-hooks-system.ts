@@ -195,7 +195,7 @@ export class AdvancedHooksSystem extends EventEmitter {
   constructor() {
     super();
     this.initializeDefaultHooks();
-    this.loadHooksFromConfig();
+    void this.loadHooksFromConfig();
   }
   
   private initializeDefaultHooks(): void {

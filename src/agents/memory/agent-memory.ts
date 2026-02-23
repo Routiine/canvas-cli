@@ -259,7 +259,7 @@ export class AgentMemory extends EventEmitter {
     this.workingMemory.currentContext.set(key, value);
     
     // Remember context update
-    this.remember({
+    void this.remember({
       action: 'context_update',
       key,
       value
@@ -283,7 +283,7 @@ export class AgentMemory extends EventEmitter {
     this.workingMemory.activeSession = sessionId || this.generateSessionId();
     this.clearWorkingMemory();
     
-    this.remember({
+    void this.remember({
       action: 'session_start',
       sessionId: this.workingMemory.activeSession
     }, 'context');

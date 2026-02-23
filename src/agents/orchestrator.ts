@@ -6,12 +6,14 @@ import { getNotificationSystem } from '../hooks/notificationSystem.js';
 import { getTranscriptManager } from '../hooks/transcriptManager.js';
 import { getSmartCompletionSystem } from '../hooks/smartCompletion.js';
 import { getModeManager } from '../modes/modeManager.js';
-import {
-  getAutonomousOrchestrator,
+import type {
   AutonomousOrchestrator,
   AutonomousConfig,
   TaskResult,
   AutonomousEvent
+} from './autonomous/index.js';
+import {
+  getAutonomousOrchestrator
 } from './autonomous/index.js';
 
 interface AgentInterface {
@@ -117,7 +119,7 @@ export class OrchestratorAgent extends EventEmitter {
     console.log(chalk.bold.green(`\n✅ Orchestrator ready with ${this.agents.size} agents\n`));
     
     // Start processing loop
-    this.startProcessing();
+    void this.startProcessing();
   }
   
   private initializeWorkflows(): void {

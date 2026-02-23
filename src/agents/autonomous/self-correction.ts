@@ -14,19 +14,22 @@ import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import {
+import type {
   CorrectionAttempt,
-  CorrectionStrategy,
   CorrectionConfig,
   ExecutionError,
   ExecutionStep,
   LearningEntry,
+  VerificationReport} from './types.js';
+import {
+  CorrectionStrategy,
   DEFAULT_CORRECTION_CONFIG,
-  VerificationReport,
   VerificationResult
 } from './types.js';
-import { getOllamaBackend, OllamaBackend } from './ollama-backend.js';
-import { getReasoningEngine, ReasoningEngine } from './reasoning-engine.js';
+import type { OllamaBackend } from './ollama-backend.js';
+import { getOllamaBackend } from './ollama-backend.js';
+import type { ReasoningEngine } from './reasoning-engine.js';
+import { getReasoningEngine } from './reasoning-engine.js';
 
 // ============================================================================
 // Types

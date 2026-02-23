@@ -1,4 +1,4 @@
-import { Tool, ToolParameterDefinition } from '../types.js';
+import type { Tool, ToolParameterDefinition } from '../types.js';
 
 interface ToolDefinition {
   type: 'function';

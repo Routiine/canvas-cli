@@ -56,8 +56,8 @@ export class CommandPalette extends EventEmitter {
     this.storageDir = path.join(os.homedir(), '.canvas-cli', 'palette');
     fs.ensureDirSync(this.storageDir);
     this.loadBuiltInCommands();
-    this.loadCustomCommands();
-    this.loadHistory();
+    void this.loadCustomCommands();
+    void this.loadHistory();
   }
   
   private loadBuiltInCommands(): void {
@@ -326,7 +326,7 @@ export class CommandPalette extends EventEmitter {
     }
     
     if (key === '\r' || key === '\n') { // Enter
-      this.executeSelected();
+      void this.executeSelected();
       return;
     }
     
@@ -491,7 +491,7 @@ export class CommandPalette extends EventEmitter {
       
       // Show suggestions if available
       if (param.suggestions) {
-        (async () => {
+        void (async () => {
           const suggestions = typeof param.suggestions === 'function'
             ? await param.suggestions()
             : param.suggestions;
@@ -571,7 +571,7 @@ export class CommandPalette extends EventEmitter {
     };
     
     this.commands.set(id, newCommand);
-    this.saveCustomCommands();
+    void this.saveCustomCommands();
     
     console.log(chalk.green(`✅ Registered command: ${command.name}`));
   }
@@ -583,7 +583,7 @@ export class CommandPalette extends EventEmitter {
       this.favorites.add(commandId);
     }
     
-    this.saveFavorites();
+    void this.saveFavorites();
   }
   
   private async loadCustomCommands(): Promise<void> {

@@ -3,7 +3,7 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import chalk from 'chalk';
-import { ConversationCheckpoint, Message } from './types.js';
+import type { ConversationCheckpoint, Message } from './types.js';
 
 export class CheckpointManager {
   private checkpointPath: string;

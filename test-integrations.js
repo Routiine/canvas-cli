@@ -71,7 +71,7 @@ const categories = {
   'Git': ['git_status', 'git_commit', 'git_push', 'github_pr'],
   'Web': ['web_fetch', 'web_search', 'api_request'],
   'Integrations': integrationTools,
-  'VSCode': ['vscode_workspace', 'vscode_settings', 'vscode_extensions']
+  'VSCode': ['read_vscode_workspace', 'read_vscode_settings', 'read_vscode_extensions']
 };
 
 console.log(chalk.cyan('\n📂 Tool Categories:'));

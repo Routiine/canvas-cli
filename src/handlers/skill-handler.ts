@@ -3,7 +3,7 @@
  */
 
 import inquirer from 'inquirer';
-import { ThemeManager } from '../themes.js';
+import type { ThemeManager } from '../themes.js';
 import { getSkillSystem } from '../skills/skillSystem.js';
 
 export class SkillHandler {

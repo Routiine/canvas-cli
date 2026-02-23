@@ -1,4 +1,4 @@
-import { ToolRegistry } from './registry.js';
+import type { ToolRegistry } from './registry.js';
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'path';
@@ -78,7 +78,7 @@ export async function forceToolExecution(
                        prompt.match(/([\.\/][^\s]+)\/[^\s]+/i);
 
     if (fileMatch) {
-      let fileName = fileMatch[1];
+      const fileName = fileMatch[1];
       let filePath = fileName;
 
       if (folderMatch && folderMatch[1] && !folderMatch[1].includes('make')) {

@@ -1,5 +1,6 @@
 import chalk from 'chalk';
-import { getHookSystem, HookContext } from './hookSystem.js';
+import type { HookContext } from './hookSystem.js';
+import { getHookSystem } from './hookSystem.js';
 import { getTranscriptManager } from './transcriptManager.js';
 
 export interface CompletionSuggestion {

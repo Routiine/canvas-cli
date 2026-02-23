@@ -2,10 +2,11 @@
  * Task Tool - Launch specialized agents like Claude Code's Task tool
  */
 
-import { Tool } from '../types.js';
-import { AgentType, AGENTS, getAgentManager } from '../agents/index.js';
-import { ThemeManager } from '../themes.js';
-import { ToolRegistry } from './registry.js';
+import type { Tool } from '../types.js';
+import type { AgentType} from '../agents/index.js';
+import { AGENTS, getAgentManager } from '../agents/index.js';
+import type { ThemeManager } from '../themes.js';
+import type { ToolRegistry } from './registry.js';
 
 export class TaskTool implements Tool {
   name = 'task';

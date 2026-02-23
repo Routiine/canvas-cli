@@ -5,7 +5,7 @@
  */
 
 import chalk from 'chalk';
-import { Theme } from './types.js';
+import type { Theme } from './types.js';
 
 export const themes: Record<string, Theme> = {
   // Dusty Sage - muted green-gray, calming and natural

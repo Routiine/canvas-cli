@@ -2,9 +2,9 @@
  * Chat handler - Chat and checkpoint command handling
  */
 
-import { ThemeManager } from '../themes.js';
-import { CheckpointManager } from '../checkpoint.js';
-import { Message } from '../types.js';
+import type { ThemeManager } from '../themes.js';
+import type { CheckpointManager } from '../checkpoint.js';
+import type { Message } from '../types.js';
 
 export class ChatHandler {
   constructor(

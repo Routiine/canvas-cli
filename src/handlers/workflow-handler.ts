@@ -2,8 +2,8 @@
  * Workflow handler - Workflow command handling
  */
 
-import { ThemeManager } from '../themes.js';
-import { WorkflowEngine } from '../tools/workflows.js';
+import type { ThemeManager } from '../themes.js';
+import type { WorkflowEngine } from '../tools/workflows.js';
 
 export class WorkflowHandler {
   constructor(

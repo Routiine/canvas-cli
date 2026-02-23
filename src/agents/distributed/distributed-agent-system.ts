@@ -9,7 +9,7 @@ import * as dgram from 'dgram';
 import * as crypto from 'crypto';
 import { z } from 'zod';
 import { AgentMemory } from '../memory/agent-memory.js';
-import { CommunicationMixin } from '../communication/agent-integration.js';
+import type { CommunicationMixin } from '../communication/agent-integration.js';
 
 // Node information schema
 export const NodeInfoSchema = z.object({
@@ -110,7 +110,7 @@ export class DistributedAgentSystem extends EventEmitter {
     this.consensusManager = new ConsensusManager(this.nodeId, this.cluster);
     this.shardManager = new ShardManager(config.shardCount);
     
-    this.initialize();
+    void this.initialize();
   }
 
   /**
@@ -144,7 +144,7 @@ export class DistributedAgentSystem extends EventEmitter {
       this.connections.set(connectionId, socket);
       
       socket.on('data', (data) => {
-        this.handleTCPMessage(data, socket);
+        void this.handleTCPMessage(data, socket);
       });
       
       socket.on('close', () => {
@@ -172,7 +172,7 @@ export class DistributedAgentSystem extends EventEmitter {
     this.udpSocket = dgram.createSocket('udp4');
     
     this.udpSocket.on('message', (msg, rinfo) => {
-      this.handleDiscoveryMessage(msg, rinfo);
+      void this.handleDiscoveryMessage(msg, rinfo);
     });
     
     this.udpSocket.on('error', (error) => {
@@ -508,7 +508,7 @@ export class DistributedAgentSystem extends EventEmitter {
         this.emit('node:offline', nodeId);
         
         // Reassign tasks from offline node
-        this.reassignTasksFromNode(nodeId);
+        void this.reassignTasksFromNode(nodeId);
       }
     }
   }

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
-import { createServer, IncomingMessage, ServerResponse } from 'http';
+import type { IncomingMessage, ServerResponse } from 'http';
+import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import chalk from 'chalk';
 import { v4 as uuidv4 } from 'uuid';
@@ -7,7 +8,8 @@ import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
 import { URL } from 'url';
-import { spawn, ChildProcess } from 'child_process';
+import type { ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
 import crypto from 'crypto';
 
 // Web Interface for Canvas CLI
@@ -125,8 +127,8 @@ export class WebInterface extends EventEmitter {
       lockoutDuration: 15 * 60 * 1000 // 15 minutes
     };
 
-    this.loadConfig();
-    this.loadUsers();
+    void this.loadConfig();
+    void this.loadUsers();
     this.setupCleanupTimer();
   }
 
@@ -324,7 +326,7 @@ export class WebInterface extends EventEmitter {
       }
 
       // Close socket connections
-      this.io.close();
+      void this.io.close();
 
       // Close HTTP server
       this.server.close(() => {
@@ -1186,7 +1188,7 @@ export class WebInterface extends EventEmitter {
 
   updateConfig(updates: Partial<WebConfig>): void {
     this.config = { ...this.config, ...updates };
-    this.saveConfig();
+    void this.saveConfig();
     console.log(chalk.green('✅ Web interface configuration updated'));
     this.emit('config-updated', this.config);
   }

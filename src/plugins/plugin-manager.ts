@@ -1,7 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
-import { Tool } from '../types.js';
+import type { Tool } from '../types.js';
 import chalk from 'chalk';
 import axios from 'axios';
 import spawn from 'cross-spawn';
@@ -34,7 +34,7 @@ export class PluginManager {
   constructor() {
     this.pluginDir = path.join(os.homedir(), '.canvas-cli', 'plugins');
     fs.ensureDirSync(this.pluginDir);
-    this.loadPlugins();
+    void this.loadPlugins();
   }
 
   private async loadPlugins(): Promise<void> {

@@ -44,7 +44,7 @@ export class FileService extends EventEmitter {
     super();
     this.backupDir = backupDir || path.join(process.env.HOME || process.env.USERPROFILE || '.', '.canvas-cli', 'backups');
     this.maxBackups = maxBackups;
-    this.initializeBackupDirectory();
+    void this.initializeBackupDirectory();
   }
 
   private async initializeBackupDirectory(): Promise<void> {

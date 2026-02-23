@@ -6,7 +6,7 @@
  */
 
 import { EventEmitter } from 'events';
-import {
+import type {
   OllamaConfig,
   OllamaRequest,
   OllamaResponse,
@@ -15,7 +15,8 @@ import {
   OllamaEmbeddingResponse,
   OllamaModel,
   ModelCapability,
-  ModelRouting,
+  ModelRouting} from './types.js';
+import {
   TaskType,
   DEFAULT_OLLAMA_CONFIG
 } from './types.js';

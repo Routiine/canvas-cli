@@ -5,7 +5,7 @@
 
 import { EventEmitter } from 'events';
 import { BaseAgent } from '../base-agent.js';
-import { AgentConfig } from '../agent-types.js';
+import type { AgentConfig } from '../agent-types.js';
 
 export interface PersonaContext {
   fileType?: string;

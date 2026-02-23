@@ -1,8 +1,8 @@
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'path';
-import { CommandHandler } from '../commands.js';
-import { Message } from '../types.js';
+import type { CommandHandler } from '../commands.js';
+import type { Message } from '../types.js';
 
 /**
  * Implementation command for processing PRDs in multiple steps

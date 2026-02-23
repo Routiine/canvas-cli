@@ -11,7 +11,8 @@ import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'js-yaml';
 import { RecipeManager } from '../recipes/recipe-manager.js';
-import { Recipe, RecipeParameter, RecipeParameterInputType, RecipeParameterRequirement } from '../recipes/recipe-types.js';
+import type { Recipe, RecipeParameter} from '../recipes/recipe-types.js';
+import { RecipeParameterInputType, RecipeParameterRequirement } from '../recipes/recipe-types.js';
 
 export function createRecipeCommand(): Command {
   const recipeCommand = new Command('recipe')
@@ -465,7 +466,7 @@ class RecipeCommandWrapper {
           return chalk.red('Usage: /recipe run <recipe-name> [params]');
         }
         try {
-          let parameters: Record<string, string> = {};
+          const parameters: Record<string, string> = {};
           if (params) {
             const pairs = params.match(/(\w+)=([^\s]+)/g);
             if (pairs) {

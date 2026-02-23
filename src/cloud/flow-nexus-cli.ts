@@ -8,9 +8,10 @@ import chalk from 'chalk';
 import ora from 'ora';
 import Table from 'cli-table3';
 import inquirer from 'inquirer';
+import type { 
+  FlowNexusConfig} from './flow-nexus-platform';
 import { 
-  FlowNexusPlatform, 
-  FlowNexusConfig,
+  FlowNexusPlatform,
   Sandbox,
   SwarmDeployment,
   DataPipeline,

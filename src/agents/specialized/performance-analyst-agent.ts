@@ -1,7 +1,8 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { performance, PerformanceObserver, PerformanceEntry } from 'perf_hooks';
+import type { PerformanceEntry } from 'perf_hooks';
+import { performance, PerformanceObserver } from 'perf_hooks';
 import v8 from 'v8';
 import os from 'os';
 import { exec } from 'child_process';

@@ -137,7 +137,7 @@ export class MultimodalContextSystem extends EventEmitter {
     if (!context) throw new Error('No active context');
     
     // Platform-specific clipboard access
-    let clipboardData: string | Buffer | null = null;
+    const clipboardData: string | Buffer | null = null;
     
     try {
       if (process.platform === 'darwin') {

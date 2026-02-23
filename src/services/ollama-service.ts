@@ -3,7 +3,8 @@
  * Handles communication with the Ollama API
  */
 
-import axios, { AxiosInstance } from 'axios';
+import type { AxiosInstance } from 'axios';
+import axios from 'axios';
 import { EventEmitter } from 'events';
 
 export interface OllamaConfig {

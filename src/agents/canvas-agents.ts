@@ -7,13 +7,14 @@ import { EventEmitter } from 'events';
 import { OllamaService } from '../services/ollama-service.js';
 import { FileService } from '../services/file-service.js';
 import { ThemeManager } from '../themes.js';
-import { AgentMemory } from './memory/agent-memory.js';
+import type { AgentMemory } from './memory/agent-memory.js';
+import type { 
+  CommunicationMixin} from './communication/agent-integration.js';
 import { 
-  CommunicationAgentFactory, 
-  CommunicationMixin,
+  CommunicationAgentFactory,
   CollaborationOrchestrator 
 } from './communication/agent-integration.js';
-import { AgentMessage } from './communication/agent-communication.js';
+import type { AgentMessage } from './communication/agent-communication.js';
 import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs/promises';

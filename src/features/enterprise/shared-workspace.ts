@@ -786,7 +786,7 @@ export class SharedWorkspaceManager extends EventEmitter {
       
       for (const [fileId, lock] of this.fileLocks) {
         if (lock.expiresAt < now) {
-          this.unlockFile(fileId, lock.userId);
+          void this.unlockFile(fileId, lock.userId);
         }
       }
     }, 60000); // Check every minute

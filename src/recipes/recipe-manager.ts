@@ -10,15 +10,16 @@ import * as os from 'os';
 import { glob } from 'glob';
 import inquirer from 'inquirer';
 
-import {
+import type {
   Recipe,
   RecipeParameter,
-  RecipeParameterRequirement,
   RecipeExecutionContext,
   RecipeExecutionResult,
   RecipeValidationResult,
   RecipeSearchResult,
-  RecipeLibrary,
+  RecipeLibrary} from './recipe-types.js';
+import {
+  RecipeParameterRequirement,
   RecipeSchema,
   BUILT_IN_RECIPE_DIR_PARAM,
   BUILT_IN_WORKING_DIR_PARAM,
@@ -50,7 +51,7 @@ export class RecipeManager {
     this.builtInRecipesDir = path.join(__dirname, '..', '..', 'recipes');
     this.userRecipesDir = path.join(os.homedir(), '.canvas-cli', 'recipes');
     
-    this.initializeRecipeDirectories();
+    void this.initializeRecipeDirectories();
   }
 
   /**

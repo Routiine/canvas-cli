@@ -12,14 +12,17 @@
  */
 
 import { EventEmitter } from 'events';
-import {
+import type {
   ContextEntry,
-  ContextEntryType,
-  ContextPriority,
   SummarizationRequest,
   SummarizationResult
 } from '../unified-types';
-import { getOllamaBackend, OllamaBackend } from '../../agents/autonomous/ollama-backend';
+import {
+  ContextEntryType,
+  ContextPriority
+} from '../unified-types';
+import type { OllamaBackend } from '../../agents/autonomous/ollama-backend';
+import { getOllamaBackend } from '../../agents/autonomous/ollama-backend';
 
 // ============================================================================
 // Types

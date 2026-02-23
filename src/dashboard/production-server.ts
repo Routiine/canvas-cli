@@ -134,8 +134,8 @@ class ProductionDashboardServer extends EventEmitter {
       lastUpdate: new Date().toISOString()
     };
 
-    this.initializeServer();
-    this.initializeData();
+    void this.initializeServer();
+    void this.initializeData();
     this.startMonitoring();
   }
 
@@ -475,7 +475,7 @@ class ProductionDashboardServer extends EventEmitter {
 
     // Data persistence every 60 seconds
     setInterval(() => {
-      this.persistData();
+      void this.persistData();
     }, 60000);
 
     // Cleanup old data every hour

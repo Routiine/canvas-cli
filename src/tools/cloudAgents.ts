@@ -3,7 +3,7 @@
  * Similar to Kilo Code's cloud agent capabilities
  */
 
-import { Tool } from '../types.js';
+import type { Tool } from '../types.js';
 import { exec, spawn, execFile as execFileCallback } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs-extra';

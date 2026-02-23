@@ -3,7 +3,7 @@
  * These are registered when advanced features are available
  */
 
-import { Command } from 'commander';
+import type { Command } from 'commander';
 
 export function createFeatureCommands(featureManager: any): Command[] {
   const commands: Command[] = [];

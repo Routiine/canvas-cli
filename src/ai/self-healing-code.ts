@@ -628,7 +628,7 @@ export class SelfHealingCodeSystem extends EventEmitter {
     
     if (issue.message.includes('unreachable')) {
       // Remove unreachable code
-      let i = lineIndex;
+      const i = lineIndex;
       while (i < lines.length && !lines[i].includes('}')) {
         lines.splice(i, 1);
       }
@@ -809,7 +809,7 @@ export class SelfHealingCodeSystem extends EventEmitter {
     this.fileWatchers.set(filePath, ac);
 
     // Start watching in the background
-    (async () => {
+    void (async () => {
       try {
         for await (const event of fs.watch(filePath, { signal })) {
           if (event.eventType === 'change' && this.isEnabled) {

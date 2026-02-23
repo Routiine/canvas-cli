@@ -5,13 +5,15 @@
  */
 
 import { BaseAgent } from '../base-agent.js';
-import { AgentConfig, AgentResult } from '../agent-types.js';
+import type { AgentResult } from '../agent-types.js';
+import { AgentConfig } from '../agent-types.js';
 import { spawn } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import ora, { Ora } from 'ora';
+import type { Ora } from 'ora';
+import ora from 'ora';
 
 export interface ProjectConfig {
   name: string;

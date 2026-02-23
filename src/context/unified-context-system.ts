@@ -15,10 +15,8 @@ import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import {
+import type {
   ContextEntry,
-  ContextEntryType,
-  ContextPriority,
   ContextWindow,
   ContextSnapshot,
   ContextDelta,
@@ -27,12 +25,18 @@ import {
   SearchOptions,
   UnifiedContextConfig,
   ModelContextConfig,
-  MODEL_CONTEXT_CONFIGS,
-  DEFAULT_UNIFIED_CONTEXT_CONFIG,
   StorageStats
 } from './unified-types';
-import { getSummarizationService, SummarizationService } from './summarization/summarization-service';
-import { getEmbeddingService, HybridEmbeddingService } from '../agents/embeddings/hybrid-embeddings';
+import {
+  ContextEntryType,
+  ContextPriority,
+  MODEL_CONTEXT_CONFIGS,
+  DEFAULT_UNIFIED_CONTEXT_CONFIG
+} from './unified-types';
+import type { SummarizationService } from './summarization/summarization-service';
+import { getSummarizationService } from './summarization/summarization-service';
+import type { HybridEmbeddingService } from '../agents/embeddings/hybrid-embeddings';
+import { getEmbeddingService } from '../agents/embeddings/hybrid-embeddings';
 
 // ============================================================================
 // Unified Context System

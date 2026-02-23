@@ -128,7 +128,7 @@ export class VoiceCommandSystem extends EventEmitter {
         const child = spawn('powershell', ['-Command', script]);
         
         child.stdout.on('data', (data: Buffer) => {
-          this.handleTranscript(data.toString());
+          void this.handleTranscript(data.toString());
         });
       },
       stop: async () => {
@@ -164,7 +164,7 @@ export class VoiceCommandSystem extends EventEmitter {
           ]);
           
           child.stdout.on('data', (data: Buffer) => {
-            this.handleTranscript(data.toString());
+            void this.handleTranscript(data.toString());
           });
           
           this.recognizer.process = child;

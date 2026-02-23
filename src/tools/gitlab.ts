@@ -3,7 +3,8 @@
  * Complete GitLab operations support including CI/CD
  */
 
-import axios, { AxiosInstance } from 'axios';
+import type { AxiosInstance } from 'axios';
+import axios from 'axios';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import path from 'path';
 import { homedir } from 'os';

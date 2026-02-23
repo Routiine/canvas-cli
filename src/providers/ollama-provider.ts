@@ -2,19 +2,21 @@
  * Ollama provider implementation
  */
 
-import axios, { AxiosError } from 'axios';
-import { 
-  BaseProvider, 
+import type { AxiosError } from 'axios';
+import axios from 'axios';
+import type { 
   Message, 
   Tool, 
   ProviderResponse, 
   ProviderMetadata, 
   ProviderConfig,
-  StreamChunk,
+  StreamChunk} from './base-provider.js';
+import { 
+  BaseProvider,
   createProviderError,
   isProviderError
 } from './base-provider.js';
-import { ModelCapabilities } from '../models/model-manager.js';
+import type { ModelCapabilities } from '../models/model-manager.js';
 
 interface OllamaGenerateRequest {
   model: string;

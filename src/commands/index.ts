@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import chalk from 'chalk';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';

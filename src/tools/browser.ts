@@ -3,7 +3,7 @@
  * Similar to Kilo Code's browser automation capabilities
  */
 
-import { Tool } from '../types.js';
+import type { Tool } from '../types.js';
 import { spawn } from 'child_process';
 
 // Dynamic import for puppeteer (optional dependency)

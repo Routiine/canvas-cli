@@ -100,7 +100,7 @@ export class AutomaticBugDetector extends EventEmitter {
     this.testRunner = new TestRunner();
     this.staticAnalyzer = new StaticAnalyzer();
     this.initializePatterns();
-    this.trainModel();
+    void this.trainModel();
   }
   
   private initializePatterns(): void {
@@ -177,7 +177,7 @@ export class AutomaticBugDetector extends EventEmitter {
         const returnLine = lines.findIndex(l => l.includes('return'));
         if (returnLine !== -1) {
           // Remove lines after return until closing brace
-          let i = returnLine + 1;
+          const i = returnLine + 1;
           while (i < lines.length && !lines[i].includes('}')) {
             lines.splice(i, 1);
           }
@@ -546,7 +546,7 @@ export class AutomaticBugDetector extends EventEmitter {
     
     for (const file of files) {
       // Using async iteration for file watching
-      (async () => {
+      void (async () => {
         try {
           for await (const event of fs.watch(file)) {
             if (event.eventType === 'change') {

@@ -1,4 +1,4 @@
-import { ToolRegistry } from './registry.js';
+import type { ToolRegistry } from './registry.js';
 import chalk from 'chalk';
 
 interface Intent {

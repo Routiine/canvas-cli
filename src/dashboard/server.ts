@@ -3,7 +3,8 @@
  * Real-time monitoring and control interface
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
+import express from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
@@ -11,10 +12,10 @@ import path from 'path';
 import os from 'os';
 import { EventEmitter } from 'events';
 import { z } from 'zod';
-import { CanvasAgentSystem } from '../agents/canvas-agents.js';
-import { ParallelStoryExecutor } from '../agents/execution/parallel-executor.js';
-import { DistributedAgentSystem } from '../agents/distributed/distributed-agent-system.js';
-import { QueueManager, LoadBalancer, ResourceOptimizer } from '../agents/orchestration/queue-load-balancer.js';
+import type { CanvasAgentSystem } from '../agents/canvas-agents.js';
+import type { ParallelStoryExecutor } from '../agents/execution/parallel-executor.js';
+import type { DistributedAgentSystem } from '../agents/distributed/distributed-agent-system.js';
+import type { QueueManager, LoadBalancer, ResourceOptimizer } from '../agents/orchestration/queue-load-balancer.js';
 
 // --- Request body schemas (SEC-015) ---
 const TaskSubmitSchema = z.object({
@@ -771,7 +772,7 @@ export class DashboardServer extends EventEmitter {
   async stop(): Promise<void> {
     return new Promise((resolve) => {
       if (this.metricsInterval) clearInterval(this.metricsInterval);
-      this.io.close();
+      void this.io.close();
       this.server.close(() => {
         this.emit('server:stopped');
         resolve();

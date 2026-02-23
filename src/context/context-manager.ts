@@ -63,7 +63,7 @@ export class ContextManager {
       maxSummaryLength: 500
     };
     
-    this.initializeTokenizer();
+    void this.initializeTokenizer();
   }
 
   private async initializeTokenizer(): Promise<void> {
@@ -214,7 +214,7 @@ export class ContextManager {
     // Preserve recent messages
     const preserveCount = Math.min(options.preserveRecent, messages.length);
     const recentMessages = messages.slice(-preserveCount);
-    let candidateMessages = messages.slice(0, -preserveCount);
+    const candidateMessages = messages.slice(0, -preserveCount);
 
     // Remove from oldest first
     while (currentTokens > targetTokens && candidateMessages.length > 0) {
@@ -256,7 +256,7 @@ export class ContextManager {
     
     const startMessages = messages.slice(0, preserveStart);
     const endMessages = messages.slice(-preserveEnd);
-    let middleMessages = messages.slice(preserveStart, -preserveEnd);
+    const middleMessages = messages.slice(preserveStart, -preserveEnd);
 
     // Remove from middle
     while (currentTokens > targetTokens && middleMessages.length > 0) {

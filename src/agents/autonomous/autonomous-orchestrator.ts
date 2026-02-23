@@ -22,7 +22,7 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
-import {
+import type {
   AutonomousTask,
   AutonomousConfig,
   AutonomousEvent,
@@ -31,27 +31,35 @@ import {
   TaskConstraints,
   TaskResult,
   TaskMetrics,
-  TaskType,
-  ExecutionStatus,
   ExecutionStep,
   ExecutionPlan,
   ExecutionError,
   ApprovalRequired,
-  ReasoningChain,
   ReasoningContext,
-  VerificationResult,
-  CorrectionStrategy,
-  DEFAULT_AUTONOMOUS_CONFIG,
   ProgressCallback,
   CancellationToken
 } from './types.js';
+import {
+  TaskType,
+  ExecutionStatus,
+  ReasoningChain,
+  VerificationResult,
+  CorrectionStrategy,
+  DEFAULT_AUTONOMOUS_CONFIG
+} from './types.js';
 
-import { getOllamaBackend, OllamaBackend } from './ollama-backend.js';
-import { getReasoningEngine, ReasoningEngine } from './reasoning-engine.js';
-import { getPlanningSystem, PlanningSystem } from './planning-system.js';
-import { getVerificationEngine, VerificationEngine } from './verification-engine.js';
-import { getSelfCorrectionLoop, SelfCorrectionLoop } from './self-correction.js';
-import { getEmbeddingService, HybridEmbeddingService } from '../embeddings/hybrid-embeddings.js';
+import type { OllamaBackend } from './ollama-backend.js';
+import { getOllamaBackend } from './ollama-backend.js';
+import type { ReasoningEngine } from './reasoning-engine.js';
+import { getReasoningEngine } from './reasoning-engine.js';
+import type { PlanningSystem } from './planning-system.js';
+import { getPlanningSystem } from './planning-system.js';
+import type { VerificationEngine } from './verification-engine.js';
+import { getVerificationEngine } from './verification-engine.js';
+import type { SelfCorrectionLoop } from './self-correction.js';
+import { getSelfCorrectionLoop } from './self-correction.js';
+import type { HybridEmbeddingService } from '../embeddings/hybrid-embeddings.js';
+import { getEmbeddingService } from '../embeddings/hybrid-embeddings.js';
 
 const execAsync = promisify(exec);
 
@@ -1151,7 +1159,7 @@ Output ONLY the complete modified file content, no explanations.`,
     this.emit(event.type, event);
     for (const handler of this.eventHandlers) {
       try {
-        handler(event);
+        void handler(event);
       } catch {
         // Ignore handler errors
       }

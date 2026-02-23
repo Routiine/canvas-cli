@@ -15,7 +15,8 @@
 
 import { EventEmitter } from 'events';
 import * as crypto from 'crypto';
-import { EmbeddingsConfig, DEFAULT_EMBEDDINGS_CONFIG } from '../autonomous/types.js';
+import type { EmbeddingsConfig} from '../autonomous/types.js';
+import { DEFAULT_EMBEDDINGS_CONFIG } from '../autonomous/types.js';
 import { getOllamaBackend } from '../autonomous/ollama-backend.js';
 
 // ============================================================================

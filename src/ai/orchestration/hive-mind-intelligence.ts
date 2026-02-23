@@ -291,7 +291,7 @@ export class QueenAI extends EventEmitter {
       this.processTaskQueue();
       this.monitorWorkerHealth();
       this.optimizeResourceAllocation();
-      this.updateCollectiveIntelligence();
+      void this.updateCollectiveIntelligence();
     }, 1000);
     
     this.emit('hive:operational');
@@ -449,7 +449,7 @@ export class QueenAI extends EventEmitter {
     this.executingTasks.set(task.id, task);
     
     // Simulate work execution
-    this.executeWork(worker, task);
+    void this.executeWork(worker, task);
     
     this.emit('task:assigned', { worker: worker.id, task: task.id });
   }
@@ -567,7 +567,7 @@ export class QueenAI extends EventEmitter {
     }
     
     // Execute swarm task
-    this.executeSwarmTask(workers, task);
+    void this.executeSwarmTask(workers, task);
   }
   
   private async executeSwarmTask(workers: WorkerAgent[], task: HiveTask): Promise<void> {
@@ -808,7 +808,7 @@ export class QueenAI extends EventEmitter {
     const availableWorkers = Array.from(this.workers.values())
       .filter(w => w.state === WorkerState.IDLE || w.load < 50);
     
-    this.coordinateSwarm(availableWorkers, task);
+    void this.coordinateSwarm(availableWorkers, task);
   }
   
   // Helper Methods
@@ -854,7 +854,7 @@ export class QueenAI extends EventEmitter {
   private processTaskQueue(): void {
     while (this.taskQueue.length > 0 && this.hiveState.idleWorkers > 0) {
       const task = this.taskQueue.shift()!;
-      this.assignTask(task);
+      void this.assignTask(task);
     }
   }
   
@@ -885,7 +885,7 @@ export class QueenAI extends EventEmitter {
       timestamp: new Date()
     };
 
-    worker.memory.addMemory('learning', memory);
+    void worker.memory.addMemory('learning', memory);
   }
 
   private recordFailure(worker: WorkerAgent, task: HiveTask): void {
@@ -895,7 +895,7 @@ export class QueenAI extends EventEmitter {
       timestamp: new Date()
     };
 
-    worker.memory.addMemory('error', memory);
+    void worker.memory.addMemory('error', memory);
   }
   
   private inferStrategy(task: HiveTask): string {

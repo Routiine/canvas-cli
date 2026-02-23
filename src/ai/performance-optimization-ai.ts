@@ -91,7 +91,7 @@ export class PerformanceOptimizationAI extends EventEmitter {
     this.aiModel = new PerformanceAIModel();
     this.profiler = new PerformanceProfiler();
     this.initializeBenchmarks();
-    this.trainModel();
+    void this.trainModel();
   }
   
   private initializeBenchmarks(): void {

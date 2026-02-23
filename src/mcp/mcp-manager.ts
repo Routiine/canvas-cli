@@ -5,10 +5,12 @@ import { StdioTransport, StdioClientTransport } from '@modelcontextprotocol/sdk'
 import { EventEmitter } from 'events';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-import { spawn, ChildProcess } from 'child_process';
+import type { ChildProcess } from 'child_process';
+import { spawn } from 'child_process';
 import { errorHandler } from '../utils/error-handler.js';
 import { performanceConfig } from '../config/performance.js';
-import { toolRegistry, Tool } from '../tools/tool-executor.js';
+import type { Tool } from '../tools/tool-executor.js';
+import { toolRegistry } from '../tools/tool-executor.js';
 
 export interface MCPServer {
   name: string;

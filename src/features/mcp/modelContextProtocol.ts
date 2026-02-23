@@ -58,7 +58,7 @@ export class ModelContextProtocol extends EventEmitter {
     super();
     this.configDir = path.join(os.homedir(), '.canvas-cli', 'mcp');
     fs.ensureDirSync(this.configDir);
-    this.loadServerConfigs();
+    void this.loadServerConfigs();
   }
   
   async discoverServers(): Promise<MCPServer[]> {
@@ -384,10 +384,10 @@ export class ModelContextProtocol extends EventEmitter {
   private handleNotification(server: MCPServer, message: MCPMessage): void {
     switch (message.method) {
       case 'tools/updated':
-        this.listTools(server);
+        void this.listTools(server);
         break;
       case 'resources/updated':
-        this.listResources(server);
+        void this.listResources(server);
         break;
       case 'log':
         console.log(chalk.dim(`[${server.name}] ${message.params?.message}`));

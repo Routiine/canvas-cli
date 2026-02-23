@@ -286,9 +286,9 @@ export class ModelOrchestrator {
       };
     }
 
-    let scores = candidates.map(({ name, capabilities }) => {
+    const scores = candidates.map(({ name, capabilities }) => {
       let score = 0;
-      let reasoning: string[] = [];
+      const reasoning: string[] = [];
 
       // Type-based scoring
       switch (analysis.type) {

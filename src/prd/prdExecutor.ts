@@ -4,7 +4,7 @@ import path from 'path';
 import axios from 'axios';
 import { loadConfig } from '../config.js';
 import { parseToolCalls } from '../toolPrompt.js';
-import { ToolRegistry } from '../tools/registry.js';
+import type { ToolRegistry } from '../tools/registry.js';
 
 export interface TodoItem {
   task: string;

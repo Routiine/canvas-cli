@@ -13,18 +13,21 @@
 
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
-import {
+import type {
   ThinkingStep,
-  ThinkingStepType,
   ReasoningChain,
   ReasoningContext,
   ReasoningConfig,
-  DEFAULT_REASONING_CONFIG,
-  TaskType,
   ProgressCallback,
   CancellationToken
 } from './types.js';
-import { getOllamaBackend, OllamaBackend } from './ollama-backend.js';
+import {
+  ThinkingStepType,
+  DEFAULT_REASONING_CONFIG,
+  TaskType
+} from './types.js';
+import type { OllamaBackend } from './ollama-backend.js';
+import { getOllamaBackend } from './ollama-backend.js';
 
 // ============================================================================
 // Types

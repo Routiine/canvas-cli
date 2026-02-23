@@ -3,7 +3,7 @@
  * Based on goose-cli's provider system
  */
 
-import { ModelCapabilities, ModelUsage } from '../models/model-manager.js';
+import type { ModelCapabilities, ModelUsage } from '../models/model-manager.js';
 
 export interface Message {
   role: 'system' | 'user' | 'assistant';

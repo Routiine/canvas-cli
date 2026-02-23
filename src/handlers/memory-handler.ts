@@ -2,9 +2,9 @@
  * Memory handler - Memory and context command handling
  */
 
-import { ThemeManager } from '../themes.js';
-import { ToolRegistry } from '../tools/registry.js';
-import { ContextLoader } from '../tools/memory.js';
+import type { ThemeManager } from '../themes.js';
+import type { ToolRegistry } from '../tools/registry.js';
+import type { ContextLoader } from '../tools/memory.js';
 
 export class MemoryHandler {
   constructor(

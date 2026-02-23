@@ -1,4 +1,4 @@
-import { Tool } from './types.js';
+import type { Tool } from './types.js';
 
 /**
  * Create a simple, universal tool prompt that works with any model

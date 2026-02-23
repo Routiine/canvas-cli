@@ -344,7 +344,7 @@ export class QueueManager extends EventEmitter {
   private scheduleItem(item: QueueItem, delay: number): void {
     const timeout = setTimeout(() => {
       this.scheduledItems.delete(item.id);
-      this.enqueue(item);
+      void this.enqueue(item);
     }, delay);
     
     this.scheduledItems.set(item.id, timeout);
@@ -362,7 +362,7 @@ export class QueueManager extends EventEmitter {
     
     if (item.metadata.retryCount < item.metadata.maxRetries) {
       item.status = 'pending';
-      this.enqueue(item);
+      void this.enqueue(item);
       this.emit('item:timeout_retry', item);
     } else {
       item.status = 'failed';
@@ -678,7 +678,7 @@ export class LoadBalancer extends EventEmitter {
   private startHealthChecking(): void {
     setInterval(() => {
       for (const worker of this.workers.values()) {
-        this.healthChecker.checkWorker(worker).then(healthy => {
+        void this.healthChecker.checkWorker(worker).then(healthy => {
           if (!healthy && worker.status !== 'offline') {
             worker.status = 'offline';
             this.emit('worker:offline', worker);

@@ -2,11 +2,12 @@
  * Central error handler with recovery strategies
  */
 
+import type { 
+  RecoveryAction} from './error-types.js';
 import { 
   CanvasError, 
   ErrorType, 
-  ErrorSeverity, 
-  RecoveryAction,
+  ErrorSeverity,
   isRetryableError,
   isRecoverableError,
   wrapError 
