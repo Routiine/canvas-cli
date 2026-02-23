@@ -3,17 +3,47 @@
  * Real-time monitoring and control interface
  */
 
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
 import os from 'os';
 import { EventEmitter } from 'events';
+import { z } from 'zod';
 import { CanvasAgentSystem } from '../agents/canvas-agents.js';
 import { ParallelStoryExecutor } from '../agents/execution/parallel-executor.js';
 import { DistributedAgentSystem } from '../agents/distributed/distributed-agent-system.js';
 import { QueueManager, LoadBalancer, ResourceOptimizer } from '../agents/orchestration/queue-load-balancer.js';
+
+// --- Request body schemas (SEC-015) ---
+const TaskSubmitSchema = z.object({
+  type: z.string().min(1),
+  priority: z.number().int().min(1).max(10).optional(),
+  planId: z.string().optional(),
+  payload: z.record(z.unknown()).optional()
+});
+
+const StoryCreateSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional().default('')
+});
+
+const WorkflowStartSchema = z.object({
+  name: z.string().min(1),
+  type: z.string().min(1),
+  stages: z.array(z.record(z.unknown())).optional().default([])
+});
+
+const PlanningMoveSchema = z.object({
+  targetColumn: z.string().min(1),
+  position: z.number().int().min(0).optional()
+});
+
+type TaskSubmit = z.infer<typeof TaskSubmitSchema>;
+type StoryCreate = z.infer<typeof StoryCreateSchema>;
+type WorkflowStart = z.infer<typeof WorkflowStartSchema>;
+type PlanningMove = z.infer<typeof PlanningMoveSchema>;
 
 export interface DashboardConfig {
   port: number;
@@ -95,7 +125,7 @@ export class DashboardServer extends EventEmitter {
     const apiPrefix = this.config.apiPrefix || '/api';
 
     // JWT authentication middleware
-    const authenticate = (req: any, res: any, next: any) => {
+    const authenticate = (req: Request, res: Response, next: NextFunction) => {
       const authHeader = req.headers.authorization;
       if (!authHeader?.startsWith('Bearer ')) {
         // Allow unauthenticated for local-only binding
@@ -149,8 +179,12 @@ export class DashboardServer extends EventEmitter {
     });
     
     this.app.post(`${apiPrefix}/tasks`, async (req, res) => {
+      const parsed = TaskSubmitSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
+      }
       try {
-        const taskId = await this.submitTask(req.body);
+        const taskId = await this.submitTask(parsed.data);
         res.json({ taskId, status: 'submitted' });
       } catch (error) {
         res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
@@ -164,8 +198,12 @@ export class DashboardServer extends EventEmitter {
     });
     
     this.app.post(`${apiPrefix}/stories`, async (req, res) => {
+      const parsed = StoryCreateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
+      }
       try {
-        const storyId = await this.createStory(req.body);
+        const storyId = await this.createStory(parsed.data);
         res.json({ storyId, status: 'created' });
       } catch (error) {
         res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
@@ -179,8 +217,12 @@ export class DashboardServer extends EventEmitter {
     });
     
     this.app.post(`${apiPrefix}/workflows`, async (req, res) => {
+      const parsed = WorkflowStartSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
+      }
       try {
-        const workflowId = await this.startWorkflow(req.body);
+        const workflowId = await this.startWorkflow(parsed.data);
         res.json({ workflowId, status: 'started' });
       } catch (error) {
         res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
@@ -202,8 +244,12 @@ export class DashboardServer extends EventEmitter {
     });
     
     this.app.put(`${apiPrefix}/planning/board/:itemId/move`, async (req, res) => {
+      const parsed = PlanningMoveSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: 'Invalid request', details: parsed.error.issues });
+      }
       try {
-        await this.movePlanningItem(req.params.itemId, req.body);
+        await this.movePlanningItem(req.params.itemId, parsed.data);
         res.json({ status: 'moved' });
       } catch (error) {
         res.status(500).json({ error: error instanceof Error ? error.message : 'Unknown error' });
@@ -358,7 +404,7 @@ export class DashboardServer extends EventEmitter {
     
     for (const cpu of cpus) {
       for (const type in cpu.times) {
-        totalTick += (cpu.times as any)[type];
+        totalTick += (cpu.times as Record<string, number>)[type];
       }
       totalIdle += cpu.times.idle;
     }
@@ -414,30 +460,30 @@ export class DashboardServer extends EventEmitter {
     }
   }
 
-  private broadcastAgentMessage(data: any): void {
+  private broadcastAgentMessage(data: unknown): void {
     this.io.emit('agent-message', data);
   }
 
-  private broadcastExecutionProgress(data: any): void {
+  private broadcastExecutionProgress(data: unknown): void {
     this.io.emit('execution-progress', data);
   }
 
-  private broadcastNodeUpdate(event: string, node: any): void {
+  private broadcastNodeUpdate(event: string, node: unknown): void {
     this.io.emit('node-update', { event, node });
   }
 
-  private broadcastDistributionUpdate(data: any): void {
+  private broadcastDistributionUpdate(data: unknown): void {
     this.io.emit('distribution-update', data);
   }
 
-  private broadcastLoadBalancingUpdate(data: any): void {
+  private broadcastLoadBalancingUpdate(data: unknown): void {
     this.io.emit('load-balancing-update', data);
   }
 
   /**
    * Task management
    */
-  private async submitTask(taskData: any): Promise<string> {
+  private async submitTask(taskData: TaskSubmit): Promise<string> {
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     const taskInfo: TaskInfo = {
@@ -479,7 +525,7 @@ export class DashboardServer extends EventEmitter {
   /**
    * Story management
    */
-  private async createStory(storyData: any): Promise<string> {
+  private async createStory(storyData: StoryCreate): Promise<string> {
     const storyId = `story_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     const storyProgress: StoryProgress = {
@@ -501,7 +547,7 @@ export class DashboardServer extends EventEmitter {
   /**
    * Workflow management
    */
-  private async startWorkflow(workflowData: any): Promise<string> {
+  private async startWorkflow(workflowData: WorkflowStart): Promise<string> {
     const workflowId = `workflow_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     const workflowState: WorkflowState = {
@@ -520,7 +566,7 @@ export class DashboardServer extends EventEmitter {
     return workflowId;
   }
 
-  private async updateWorkflow(workflowId: string, updates: any): Promise<void> {
+  private async updateWorkflow(workflowId: string, updates: Partial<WorkflowState>): Promise<void> {
     const workflow = this.workflowStates.get(workflowId);
     if (workflow) {
       Object.assign(workflow, updates);
@@ -591,7 +637,7 @@ export class DashboardServer extends EventEmitter {
           title: task.type,
           description: JSON.stringify(task.data),
           assignee: task.assignee,
-          priority: task.data.priority || 5,
+          priority: (typeof task.data.priority === 'number' ? task.data.priority : undefined) ?? 5,
           tags: []
         });
       }
@@ -621,7 +667,7 @@ export class DashboardServer extends EventEmitter {
     return mapping[status] || 'backlog';
   }
 
-  private async movePlanningItem(itemId: string, moveData: any): Promise<void> {
+  private async movePlanningItem(itemId: string, moveData: PlanningMove): Promise<void> {
     // Update item position
     const { targetColumn, position } = moveData;
     
@@ -666,7 +712,7 @@ export class DashboardServer extends EventEmitter {
   /**
    * Drag and drop handling
    */
-  private async handleDragDrop(data: any): Promise<void> {
+  private async handleDragDrop(data: { itemId: string; sourceColumn: string; targetColumn: string; position?: number }): Promise<void> {
     const { itemId, sourceColumn, targetColumn, position } = data;
     
     await this.movePlanningItem(itemId, { targetColumn, position });
@@ -766,8 +812,8 @@ interface TaskInfo {
   startedAt?: string;
   completedAt?: string;
   assignee?: string;
-  data: any;
-  result?: any;
+  data: Record<string, unknown>;
+  result?: unknown;
   error?: string;
 }
 
@@ -787,7 +833,7 @@ interface WorkflowState {
   name: string;
   type: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
-  stages: any[];
+  stages: Record<string, unknown>[];
   currentStage: number;
   startedAt: string;
   completedAt?: string;

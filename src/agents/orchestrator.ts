@@ -14,17 +14,46 @@ import {
   AutonomousEvent
 } from './autonomous/index.js';
 
+interface AgentInterface {
+  isActive(): boolean;
+  getCapabilities(): string[];
+  deactivate(): Promise<void>;
+  execute(task: Record<string, unknown>): Promise<unknown>;
+}
+
 interface AgentTask {
   id: string;
   agent: string;
-  task: any;
+  task: Record<string, unknown>;
   priority: number;
   dependencies?: string[];
   status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
-  result?: any;
-  error?: any;
+  result?: unknown;
+  error?: unknown;
   timeout?: number; // Task-specific timeout in ms
   startedAt?: Date;
+}
+
+interface OrchestratorStatus {
+  agents: string[];
+  queue: number;
+  running: number;
+  completed: number;
+  workflows: string[];
+}
+
+interface AgentStatusInfo {
+  name: string;
+  active: boolean;
+  capabilities: string[];
+  error?: string;
+}
+
+interface AutonomousStatusInfo {
+  enabled: boolean;
+  activeTasks?: number;
+  recentTasks?: Array<{ id: string; goal: string; status: string; success?: boolean }>;
+  config?: unknown;
 }
 
 interface Workflow {
@@ -35,7 +64,7 @@ interface Workflow {
 }
 
 export class OrchestratorAgent extends EventEmitter {
-  private agents: Map<string, any> = new Map();
+  private agents: Map<string, AgentInterface> = new Map();
   private taskQueue: AgentTask[] = [];
   private runningTasks: Map<string, AgentTask> = new Map();
   private completedTasks: Map<string, AgentTask> = new Map();
@@ -194,7 +223,7 @@ export class OrchestratorAgent extends EventEmitter {
     });
   }
   
-  async executeWorkflow(workflowName: string): Promise<any> {
+  async executeWorkflow(workflowName: string): Promise<unknown> {
     const workflow = this.workflows.get(workflowName);
     
     if (!workflow) {
@@ -214,7 +243,7 @@ export class OrchestratorAgent extends EventEmitter {
     return await this.waitForWorkflowCompletion(workflow);
   }
   
-  async executeTask(agentName: string, task: any): Promise<any> {
+  async executeTask(agentName: string, task: Record<string, unknown>): Promise<unknown> {
     const agent = this.agents.get(agentName);
     
     if (!agent) {
@@ -292,6 +321,7 @@ export class OrchestratorAgent extends EventEmitter {
     try {
       // Execute task with agent and timeout support
       const agent = this.agents.get(task.agent);
+      if (!agent) throw new Error(`Agent '${task.agent}' not found`);
       const result = await this.executeWithAbort(
         agent.execute(task.task),
         abortController.signal,
@@ -418,7 +448,7 @@ export class OrchestratorAgent extends EventEmitter {
     return true;
   }
   
-  private async waitForTaskCompletion(taskId: string, timeout: number = 300000): Promise<any> {
+  private async waitForTaskCompletion(taskId: string, timeout: number = 300000): Promise<unknown> {
     const existing = this.completedTasks.get(taskId);
     if (existing) {
       if (existing.status === 'completed') return existing.result;
@@ -469,7 +499,7 @@ export class OrchestratorAgent extends EventEmitter {
     });
   }
   
-  private buildWorkflowResult(workflow: Workflow): any {
+  private buildWorkflowResult(workflow: Workflow): Record<string, unknown> {
     const results = workflow.tasks.map(task => {
       const completed = this.completedTasks.get(task.id);
       return {
@@ -494,7 +524,7 @@ export class OrchestratorAgent extends EventEmitter {
     });
   }
 
-  private async waitForWorkflowCompletion(workflow: Workflow, timeout: number = 600000): Promise<any> {
+  private async waitForWorkflowCompletion(workflow: Workflow, timeout: number = 600000): Promise<unknown> {
     // Check if already done (all tasks pre-completed)
     if (this.isWorkflowDone(workflow)) {
       return this.buildWorkflowResult(workflow);
@@ -588,7 +618,7 @@ export class OrchestratorAgent extends EventEmitter {
     return analysis;
   }
   
-  private buildTaskForAgent(agentName: string, input: string): any {
+  private buildTaskForAgent(agentName: string, input: string): { type: string } {
     // Simple task building based on agent type
     switch (agentName) {
       case 'FzfAgent':
@@ -628,7 +658,7 @@ export class OrchestratorAgent extends EventEmitter {
   }
   
   // Coordination methods
-  async coordinateAgents(goal: string): Promise<any> {
+  async coordinateAgents(goal: string): Promise<unknown> {
     console.log(chalk.bold.magenta(`\n🎯 Coordinating agents for goal: ${goal}`));
     
     // Analyze goal to determine required agents and workflow
@@ -816,7 +846,7 @@ export class OrchestratorAgent extends EventEmitter {
   /**
    * Get autonomous orchestrator status
    */
-  getAutonomousStatus(): any {
+  getAutonomousStatus(): AutonomousStatusInfo {
     if (!this.autonomousOrchestrator) {
       return { enabled: false };
     }
@@ -835,7 +865,7 @@ export class OrchestratorAgent extends EventEmitter {
   }
 
   // Status and monitoring
-  getStatus(): any {
+  getStatus(): OrchestratorStatus {
     return {
       agents: Array.from(this.agents.keys()),
       queue: this.taskQueue.length,
@@ -845,10 +875,10 @@ export class OrchestratorAgent extends EventEmitter {
     };
   }
   
-  getAgentStatus(agentName: string): any {
+  getAgentStatus(agentName: string): AgentStatusInfo {
     const agent = this.agents.get(agentName);
     if (!agent) {
-      return { error: 'Agent not found' };
+      return { name: agentName, active: false, capabilities: [], error: 'Agent not found' };
     }
     
     return {
@@ -896,17 +926,17 @@ export async function getOrchestrator(): Promise<OrchestratorAgent> {
 }
 
 // Helper functions for easy access
-export async function executeWorkflow(workflowName: string): Promise<any> {
+export async function executeWorkflow(workflowName: string): Promise<unknown> {
   const orchestrator = await getOrchestrator();
   return await orchestrator.executeWorkflow(workflowName);
 }
 
-export async function executeAgentTask(agentName: string, task: any): Promise<any> {
+export async function executeAgentTask(agentName: string, task: Record<string, unknown>): Promise<unknown> {
   const orchestrator = await getOrchestrator();
   return await orchestrator.executeTask(agentName, task);
 }
 
-export async function coordinateGoal(goal: string): Promise<any> {
+export async function coordinateGoal(goal: string): Promise<unknown> {
   const orchestrator = await getOrchestrator();
   return await orchestrator.coordinateAgents(goal);
 }
@@ -930,7 +960,7 @@ export async function executeAutonomousGoal(
   return await orchestrator.executeAutonomous(goal, context, onProgress);
 }
 
-export async function getAutonomousStatus(): Promise<any> {
+export async function getAutonomousStatus(): Promise<AutonomousStatusInfo> {
   const orchestrator = await getOrchestrator();
   return orchestrator.getAutonomousStatus();
 }
