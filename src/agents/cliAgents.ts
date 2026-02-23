@@ -260,8 +260,13 @@ export class SessionManagerAgent extends Agent {
   
   async initialize(): Promise<void> {
     this.tool = new cliIntegrations.tmux();
-    await this.loadSessions();
-    console.log(chalk.blue(`🖥️ ${this.name} initialized - Managing terminal sessions`));
+    try {
+      await this.loadSessions();
+      console.log(chalk.blue(`🖥️ ${this.name} initialized - Managing terminal sessions`));
+    } catch (error: any) {
+      // tmux not installed - agent will be disabled but won't crash the app
+      console.log(chalk.dim(`  SessionManagerAgent disabled (tmux not installed)`));
+    }
   }
   
   async execute(task: {

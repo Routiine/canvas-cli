@@ -179,7 +179,7 @@ export type BugReport = z.infer<typeof BugReportSchema>;
 export class QAEngineerAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: ModelManager;
+  private modelManager: typeof ModelManager;
   private agentId = 'qa-engineer';
   
   private testPlans: Map<string, TestPlan> = new Map();
@@ -190,7 +190,7 @@ export class QAEngineerAgent extends EventEmitter {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = new ModelManager();
+    this.modelManager = ModelManager;
   }
   
   async initialize(): Promise<void> {

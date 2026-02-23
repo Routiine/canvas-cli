@@ -36,12 +36,12 @@ export interface ComponentSpec {
  * Code Generator Implementation
  */
 export class CodeGenerator extends EventEmitter {
-  private modelManager: ModelManager;
+  private modelManager: typeof ModelManager;
   private templates: Map<string, string> = new Map();
   
   constructor() {
     super();
-    this.modelManager = new ModelManager();
+    this.modelManager = ModelManager;
     this.initializeTemplates();
   }
   

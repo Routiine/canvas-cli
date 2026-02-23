@@ -142,7 +142,7 @@ export type CodeReview = z.infer<typeof CodeReviewSchema>;
 export class DeveloperAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: ModelManager;
+  private modelManager: typeof ModelManager;
   private codeGenerator: CodeGenerator;
   private storage: ImplementationStorage;
   private validator: CodeValidator;
@@ -152,7 +152,7 @@ export class DeveloperAgent extends EventEmitter {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = new ModelManager();
+    this.modelManager = ModelManager;
     this.codeGenerator = new CodeGenerator();
     this.storage = new ImplementationStorage();
     this.validator = new CodeValidator();
@@ -711,7 +711,8 @@ Provide clear, concise, and helpful documentation.`;
       summary += `Found ${majorCount} major issues to address. `;
     }
     
-    const avgScore = Object.values(metrics).reduce((a: number, b: any) => a + b, 0) / Object.keys(metrics).length;
+    const metricValues = Object.values(metrics).filter((v): v is number => typeof v === 'number');
+    const avgScore = metricValues.length > 0 ? metricValues.reduce((a, b) => a + b, 0) / metricValues.length : 0;
     summary += `Overall quality score: ${avgScore.toFixed(1)}/100.`;
     
     return summary;

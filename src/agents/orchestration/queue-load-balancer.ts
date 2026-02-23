@@ -132,16 +132,19 @@ export class QueueManager extends EventEmitter {
   private deadLetterQueue: QueueItem[];
   private scheduledItems: Map<string, NodeJS.Timeout>;
   private processingItems: Map<string, QueueItem>;
+  private processingTimeouts: Map<string, NodeJS.Timeout>; // Track timeout handles for cleanup
   private metrics: QueueMetrics;
   private maxQueueSize: number;
   private processingTimeout: number;
-  
+  private dequeueLock: boolean = false; // Mutex for dequeue operations
+
   constructor(maxQueueSize: number = 10000, processingTimeout: number = 60000) {
     super();
     this.queues = new Map();
     this.deadLetterQueue = [];
     this.scheduledItems = new Map();
     this.processingItems = new Map();
+    this.processingTimeouts = new Map();
     this.maxQueueSize = maxQueueSize;
     this.processingTimeout = processingTimeout;
     this.metrics = {
@@ -152,9 +155,34 @@ export class QueueManager extends EventEmitter {
       averageProcessingTime: 0,
       queueDepth: 0
     };
-    
+
     this.initializeQueues();
     this.startMetricsCollection();
+  }
+
+  /**
+   * Acquire dequeue lock (simple mutex for single-process scenarios)
+   */
+  private async acquireLock(): Promise<boolean> {
+    const maxWait = 5000; // 5 second max wait
+    const start = Date.now();
+
+    while (this.dequeueLock) {
+      if (Date.now() - start > maxWait) {
+        return false; // Timeout acquiring lock
+      }
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+
+    this.dequeueLock = true;
+    return true;
+  }
+
+  /**
+   * Release dequeue lock
+   */
+  private releaseLock(): void {
+    this.dequeueLock = false;
   }
   
   private initializeQueues(): void {
@@ -208,64 +236,93 @@ export class QueueManager extends EventEmitter {
   }
   
   /**
-   * Dequeue next item based on strategy
+   * Dequeue next item based on strategy (thread-safe with lock)
    */
   async dequeue(workerId: string): Promise<QueueItem | null> {
-    // Check queues in priority order
-    const queueOrder = ['urgent', 'high', 'normal', 'low', 'background'];
-    
-    for (const queueName of queueOrder) {
-      const queue = this.queues.get(queueName)!;
-      const item = queue.dequeue();
-      
-      if (item) {
-        item.status = 'processing';
-        item.assignedTo = workerId;
-        this.processingItems.set(item.id, item);
-        
-        // Set timeout for processing
-        setTimeout(() => {
-          if (this.processingItems.has(item.id)) {
-            this.handleTimeout(item);
-          }
-        }, this.processingTimeout);
-        
-        this.emit('item:dequeued', item);
-        return item;
-      }
+    // Acquire lock to prevent race conditions
+    const lockAcquired = await this.acquireLock();
+    if (!lockAcquired) {
+      this.emit('dequeue:lock_timeout', { workerId });
+      return null;
     }
-    
-    return null;
+
+    try {
+      // Check queues in priority order
+      const queueOrder = ['urgent', 'high', 'normal', 'low', 'background'];
+
+      for (const queueName of queueOrder) {
+        const queue = this.queues.get(queueName)!;
+        const item = queue.dequeue();
+
+        if (item) {
+          item.status = 'processing';
+          item.assignedTo = workerId;
+          this.processingItems.set(item.id, item);
+
+          // Set timeout for processing and track the handle for cleanup
+          const timeoutHandle = setTimeout(() => {
+            if (this.processingItems.has(item.id)) {
+              this.handleTimeout(item);
+            }
+          }, this.processingTimeout);
+          this.processingTimeouts.set(item.id, timeoutHandle);
+
+          this.emit('item:dequeued', item);
+          return item;
+        }
+      }
+
+      return null;
+    } finally {
+      this.releaseLock();
+    }
   }
   
+  /**
+   * Clear timeout handle for an item
+   */
+  private clearItemTimeout(itemId: string): void {
+    const timeout = this.processingTimeouts.get(itemId);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.processingTimeouts.delete(itemId);
+    }
+  }
+
   /**
    * Mark item as completed
    */
   async complete(itemId: string, result: any): Promise<void> {
     const item = this.processingItems.get(itemId);
     if (!item) return;
-    
+
+    // Clear the timeout to prevent memory leak
+    this.clearItemTimeout(itemId);
+
     item.status = 'completed';
     item.result = result;
     this.processingItems.delete(itemId);
-    
+
     this.metrics.totalProcessed++;
     this.updateAverageProcessingTime(item);
-    
+
     this.emit('item:completed', item);
   }
-  
+
   /**
    * Mark item as failed
    */
   async fail(itemId: string, error: string): Promise<void> {
     const item = this.processingItems.get(itemId);
     if (!item) return;
-    
+
+    // Clear the timeout to prevent memory leak
+    this.clearItemTimeout(itemId);
+
     item.status = 'failed';
     item.error = error;
     item.metadata.retryCount++;
-    
+
     this.processingItems.delete(itemId);
     
     // Retry logic
@@ -798,7 +855,7 @@ interface PerformanceRecord {
 export class ResourceOptimizer extends EventEmitter {
   private queueManager: QueueManager;
   private loadBalancer: LoadBalancer;
-  private optimizationInterval: NodeJS.Timeout;
+  private optimizationInterval!: NodeJS.Timeout;
   private resourceMonitor: SystemResourceMonitor;
   
   constructor(queueManager: QueueManager, loadBalancer: LoadBalancer) {

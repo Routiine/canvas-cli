@@ -23,7 +23,7 @@ export class ConfigCommand {
       case 'interactive':
       case '':
         await this.showInteractiveMenu();
-        return;
+        return '';
       
       case 'show':
       case 'list':

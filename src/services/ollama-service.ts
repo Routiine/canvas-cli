@@ -134,6 +134,13 @@ export class OllamaService extends EventEmitter {
   }
 
   /**
+   * Get the default model
+   */
+  getDefaultModel(): string {
+    return this.config.defaultModel || 'llama3.2:latest';
+  }
+
+  /**
    * Test connection to Ollama
    */
   async testConnection(): Promise<boolean> {

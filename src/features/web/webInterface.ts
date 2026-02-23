@@ -8,6 +8,7 @@ import path from 'path';
 import os from 'os';
 import { URL } from 'url';
 import { spawn, ChildProcess } from 'child_process';
+import crypto from 'crypto';
 
 // Web Interface for Canvas CLI
 export interface WebSession {
@@ -52,6 +53,22 @@ export interface WebConfig {
   enableFileDownload: boolean;
   maxFileSize: number;
   corsOrigins: string[];
+  authTokenExpiry: number; // Token expiry in ms
+  maxFailedLoginAttempts: number;
+  lockoutDuration: number; // Lockout duration in ms
+}
+
+export interface AuthToken {
+  token: string;
+  userId: string;
+  createdAt: Date;
+  expiresAt: Date;
+  ipAddress: string;
+}
+
+interface LoginAttempt {
+  count: number;
+  lockedUntil?: Date;
 }
 
 export interface FileOperation {
@@ -70,7 +87,7 @@ export interface FileOperation {
 
 export class WebInterface extends EventEmitter {
   private server: any;
-  private io: SocketIOServer;
+  private io!: SocketIOServer;
   private sessions: Map<string, WebSession> = new Map();
   private commands: Map<string, WebCommand> = new Map();
   private fileOperations: Map<string, FileOperation> = new Map();
@@ -79,11 +96,16 @@ export class WebInterface extends EventEmitter {
   private storageDir: string;
   private isRunning: boolean = false;
 
+  // Authentication state
+  private authTokens: Map<string, AuthToken> = new Map();
+  private loginAttempts: Map<string, LoginAttempt> = new Map();
+  private users: Map<string, { passwordHash: string; role: string }> = new Map();
+
   constructor() {
     super();
     this.storageDir = path.join(os.homedir(), '.canvas-cli', 'web');
     fs.ensureDirSync(this.storageDir);
-    
+
     this.config = {
       enabled: true,
       port: 3000,
@@ -97,11 +119,168 @@ export class WebInterface extends EventEmitter {
       enableFileUpload: true,
       enableFileDownload: true,
       maxFileSize: 100 * 1024 * 1024, // 100MB
-      corsOrigins: ['http://localhost:3000', 'http://127.0.0.1:3000']
+      corsOrigins: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+      authTokenExpiry: 24 * 60 * 60 * 1000, // 24 hours
+      maxFailedLoginAttempts: 5,
+      lockoutDuration: 15 * 60 * 1000 // 15 minutes
     };
-    
+
     this.loadConfig();
+    this.loadUsers();
     this.setupCleanupTimer();
+  }
+
+  /**
+   * Load users from file
+   */
+  private async loadUsers(): Promise<void> {
+    const usersPath = path.join(this.storageDir, 'users.json');
+    try {
+      if (await fs.pathExists(usersPath)) {
+        const data = await fs.readJson(usersPath);
+        for (const [username, userData] of Object.entries(data)) {
+          this.users.set(username, userData as { passwordHash: string; role: string });
+        }
+      } else {
+        // Create default admin user if auth is enabled and no users exist
+        if (this.config.enableAuth) {
+          const defaultPassword = crypto.randomBytes(16).toString('hex');
+          await this.createUser('admin', defaultPassword, 'admin');
+          const credentialsDir = path.join(os.homedir(), '.canvas', 'web');
+          const credentialsPath = path.join(credentialsDir, 'admin-credentials.txt');
+          await fs.ensureDir(credentialsDir);
+          await fs.writeFile(credentialsPath, `admin:${defaultPassword}\n`, { mode: 0o600 });
+          console.log(chalk.yellow(`\n⚠️  Default admin user created. Credentials saved to: ${credentialsPath}`));
+          console.log(chalk.yellow(`   File permissions set to 600 (owner read/write only)\n`));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load users:', error);
+    }
+  }
+
+  /**
+   * Save users to file
+   */
+  private async saveUsers(): Promise<void> {
+    const usersPath = path.join(this.storageDir, 'users.json');
+    const data: Record<string, any> = {};
+    for (const [username, userData] of this.users) {
+      data[username] = userData;
+    }
+    await fs.writeJson(usersPath, data, { spaces: 2 });
+  }
+
+  /**
+   * Create a new user
+   */
+  async createUser(username: string, password: string, role: string = 'user'): Promise<void> {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+    this.users.set(username, { passwordHash: `${salt}:${hash}`, role });
+    await this.saveUsers();
+  }
+
+  /**
+   * Verify user password
+   */
+  private verifyPassword(username: string, password: string): boolean {
+    const user = this.users.get(username);
+    if (!user) return false;
+
+    const [salt, storedHash] = user.passwordHash.split(':');
+    const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex');
+    return crypto.timingSafeEqual(Buffer.from(storedHash, 'hex'), Buffer.from(hash, 'hex'));
+  }
+
+  /**
+   * Check if IP is locked out
+   */
+  private isLockedOut(ipAddress: string): boolean {
+    const attempt = this.loginAttempts.get(ipAddress);
+    if (!attempt || !attempt.lockedUntil) return false;
+    if (new Date() > attempt.lockedUntil) {
+      this.loginAttempts.delete(ipAddress);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Record failed login attempt
+   */
+  private recordFailedLogin(ipAddress: string): void {
+    const attempt = this.loginAttempts.get(ipAddress) || { count: 0 };
+    attempt.count++;
+    if (attempt.count >= this.config.maxFailedLoginAttempts) {
+      attempt.lockedUntil = new Date(Date.now() + this.config.lockoutDuration);
+      console.log(chalk.red(`🔒 IP ${ipAddress} locked out due to too many failed login attempts`));
+    }
+    this.loginAttempts.set(ipAddress, attempt);
+  }
+
+  /**
+   * Authenticate user and create token
+   */
+  authenticate(username: string, password: string, ipAddress: string): { success: boolean; token?: string; error?: string } {
+    // Check lockout
+    if (this.isLockedOut(ipAddress)) {
+      return { success: false, error: 'Too many failed attempts. Please try again later.' };
+    }
+
+    // Verify credentials
+    if (!this.verifyPassword(username, password)) {
+      this.recordFailedLogin(ipAddress);
+      return { success: false, error: 'Invalid username or password' };
+    }
+
+    // Clear failed attempts on success
+    this.loginAttempts.delete(ipAddress);
+
+    // Create token
+    const token = crypto.randomBytes(32).toString('hex');
+    const authToken: AuthToken = {
+      token,
+      userId: username,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + this.config.authTokenExpiry),
+      ipAddress
+    };
+
+    this.authTokens.set(token, authToken);
+    console.log(chalk.green(`✅ User ${username} authenticated from ${ipAddress}`));
+
+    return { success: true, token };
+  }
+
+  /**
+   * Validate auth token
+   */
+  validateToken(token: string, ipAddress: string): { valid: boolean; userId?: string } {
+    const authToken = this.authTokens.get(token);
+    if (!authToken) {
+      return { valid: false };
+    }
+
+    // Check expiry
+    if (new Date() > authToken.expiresAt) {
+      this.authTokens.delete(token);
+      return { valid: false };
+    }
+
+    // Optionally check IP (can be disabled for mobile users)
+    // if (authToken.ipAddress !== ipAddress) {
+    //   return { valid: false };
+    // }
+
+    return { valid: true, userId: authToken.userId };
+  }
+
+  /**
+   * Revoke auth token (logout)
+   */
+  revokeToken(token: string): void {
+    this.authTokens.delete(token);
   }
 
   async start(): Promise<void> {
@@ -157,7 +336,7 @@ export class WebInterface extends EventEmitter {
     });
   }
 
-  private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
+  private async handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
     const pathname = url.pathname;
 
@@ -173,9 +352,26 @@ export class WebInterface extends EventEmitter {
     }
 
     try {
+      // Check authentication for protected endpoints
+      const protectedEndpoints = ['/api/sessions', '/api/commands', '/api/files'];
+      if (this.config.enableAuth && protectedEndpoints.some(ep => pathname.startsWith(ep))) {
+        const token = this.extractToken(req);
+        const ipAddress = req.socket.remoteAddress || '';
+        if (!token || !this.validateToken(token, ipAddress).valid) {
+          this.sendJson(res, { error: 'Unauthorized' }, 401);
+          return;
+        }
+      }
+
       switch (pathname) {
         case '/':
           this.serveIndexPage(req, res);
+          break;
+        case '/api/login':
+          await this.handleLoginRequest(req, res);
+          break;
+        case '/api/logout':
+          this.handleLogoutRequest(req, res);
           break;
         case '/api/status':
           this.handleStatusRequest(req, res);
@@ -200,6 +396,73 @@ export class WebInterface extends EventEmitter {
     } catch (error) {
       this.serveError(res, 500, `Server Error: ${error}`);
     }
+  }
+
+  /**
+   * Extract auth token from request
+   */
+  private extractToken(req: IncomingMessage): string | null {
+    const authHeader = req.headers.authorization;
+    if (authHeader?.startsWith('Bearer ')) {
+      return authHeader.substring(7);
+    }
+    return null;
+  }
+
+  /**
+   * Handle login request
+   */
+  private async handleLoginRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (req.method !== 'POST') {
+      this.serveError(res, 405, 'Method not allowed');
+      return;
+    }
+
+    const body = await this.parseRequestBody(req);
+    const { username, password } = body;
+
+    if (!username || !password) {
+      this.sendJson(res, { error: 'Username and password required' }, 400);
+      return;
+    }
+
+    const ipAddress = req.socket.remoteAddress || '';
+    const result = this.authenticate(username, password, ipAddress);
+
+    if (result.success) {
+      this.sendJson(res, { success: true, token: result.token });
+    } else {
+      this.sendJson(res, { success: false, error: result.error }, 401);
+    }
+  }
+
+  /**
+   * Handle logout request
+   */
+  private handleLogoutRequest(req: IncomingMessage, res: ServerResponse): void {
+    const token = this.extractToken(req);
+    if (token) {
+      this.revokeToken(token);
+    }
+    this.sendJson(res, { success: true });
+  }
+
+  /**
+   * Parse request body as JSON
+   */
+  private parseRequestBody(req: IncomingMessage): Promise<any> {
+    return new Promise((resolve, reject) => {
+      let body = '';
+      req.on('data', chunk => body += chunk);
+      req.on('end', () => {
+        try {
+          resolve(JSON.parse(body || '{}'));
+        } catch {
+          resolve({});
+        }
+      });
+      req.on('error', reject);
+    });
   }
 
   private serveIndexPage(req: IncomingMessage, res: ServerResponse): void {
@@ -584,11 +847,46 @@ export class WebInterface extends EventEmitter {
   }
 
   private setupSocketHandlers(): void {
+    // Socket.io authentication middleware
+    this.io.use((socket, next) => {
+      if (!this.config.enableAuth) {
+        return next();
+      }
+
+      const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+      if (!token) {
+        return next(new Error('Authentication required'));
+      }
+
+      const ipAddress = socket.handshake.address;
+      const validation = this.validateToken(token as string, ipAddress);
+      if (!validation.valid) {
+        return next(new Error('Invalid or expired token'));
+      }
+
+      // Attach user info to socket
+      (socket as any).userId = validation.userId;
+      next();
+    });
+
     this.io.on('connection', (socket) => {
       const session = this.createSession(socket);
       console.log(chalk.blue(`👤 New web session: ${session.id}`));
 
-      socket.emit('session_created', { sessionId: session.id });
+      socket.emit('session_created', { sessionId: session.id, authRequired: this.config.enableAuth });
+
+      // Handle authentication via socket
+      socket.on('authenticate', (data) => {
+        const ipAddress = socket.handshake.address;
+        const result = this.authenticate(data.username, data.password, ipAddress);
+        if (result.success) {
+          session.isAuthenticated = true;
+          session.userId = data.username;
+          socket.emit('authenticated', { success: true, token: result.token });
+        } else {
+          socket.emit('authenticated', { success: false, error: result.error });
+        }
+      });
 
       socket.on('execute_command', async (data) => {
         await this.handleSocketCommand(session.id, data.command, socket);
@@ -798,9 +1096,9 @@ export class WebInterface extends EventEmitter {
     this.serve404(res);
   }
 
-  private sendJson(res: ServerResponse, data: any): void {
+  private sendJson(res: ServerResponse, data: any, statusCode: number = 200): void {
     res.setHeader('Content-Type', 'application/json');
-    res.writeHead(200);
+    res.writeHead(statusCode);
     res.end(JSON.stringify(data));
   }
 

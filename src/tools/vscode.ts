@@ -4,6 +4,7 @@ import path from 'path';
 import { glob } from 'glob';
 import chalk from 'chalk';
 import os from 'os';
+import { logger } from '../utils/logger.js';
 
 interface VSCodeWorkspace {
   folders?: Array<{ path: string; name?: string }>;
@@ -347,7 +348,7 @@ export class VSCodeProjectContextTool extends BaseTool {
       if (await fs.pathExists(settingsPath)) {
         try {
           result.settings = await fs.readJSON(settingsPath);
-        } catch (e) {}
+        } catch (e) { logger.catch('Failed to parse config', e); }
       }
 
       // Extensions
@@ -355,7 +356,7 @@ export class VSCodeProjectContextTool extends BaseTool {
       if (await fs.pathExists(extensionsPath)) {
         try {
           result.extensions = await fs.readJSON(extensionsPath);
-        } catch (e) {}
+        } catch (e) { logger.catch('Failed to parse config', e); }
       }
 
       // Tasks
@@ -364,7 +365,7 @@ export class VSCodeProjectContextTool extends BaseTool {
         try {
           const tasks = await fs.readJSON(tasksPath);
           result.tasks = tasks.tasks || [];
-        } catch (e) {}
+        } catch (e) { logger.catch('Failed to parse config', e); }
       }
 
       // Launch
@@ -372,7 +373,7 @@ export class VSCodeProjectContextTool extends BaseTool {
       if (await fs.pathExists(launchPath)) {
         try {
           result.launch = await fs.readJSON(launchPath);
-        } catch (e) {}
+        } catch (e) { logger.catch('Failed to parse config', e); }
       }
     }
 
@@ -398,7 +399,7 @@ export class VSCodeProjectContextTool extends BaseTool {
               ? content.split('\n').filter(Boolean)
               : content;
           }
-        } catch (e) {}
+        } catch (e) { logger.catch('Failed to parse config', e); }
       }
     }
 
@@ -505,7 +506,7 @@ export class VSCodeAutoDetectTool extends BaseTool {
       if (await fs.pathExists(settingsPath)) {
         try {
           result.settings = await fs.readJSON(settingsPath);
-        } catch (e) {}
+        } catch (e) { logger.catch('Failed to parse config', e); }
       }
       
       // Load tasks
@@ -514,7 +515,7 @@ export class VSCodeAutoDetectTool extends BaseTool {
         try {
           const tasksData = await fs.readJSON(tasksPath);
           result.tasks = tasksData.tasks || [];
-        } catch (e) {}
+        } catch (e) { logger.catch('Failed to parse config', e); }
       }
       
       // Load launch configurations
@@ -523,7 +524,7 @@ export class VSCodeAutoDetectTool extends BaseTool {
         try {
           const launchData = await fs.readJSON(launchPath);
           result.launch = launchData.configurations || [];
-        } catch (e) {}
+        } catch (e) { logger.catch('Failed to parse config', e); }
       }
     }
     

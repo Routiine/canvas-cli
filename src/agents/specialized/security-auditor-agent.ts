@@ -349,7 +349,8 @@ export class SecurityAuditorAgent extends EventEmitter {
         const auditResult = JSON.parse(stdout);
         
         if (auditResult.vulnerabilities) {
-          for (const [pkgName, vuln] of Object.entries(auditResult.vulnerabilities as any)) {
+          for (const [pkgName, vulnData] of Object.entries(auditResult.vulnerabilities as Record<string, any>)) {
+            const vuln = vulnData as any;
             result.dependencies?.push({
               package: pkgName,
               version: vuln.version,
@@ -369,7 +370,7 @@ export class SecurityAuditorAgent extends EventEmitter {
         const { stdout } = await execAsync('npm outdated --json', { cwd: projectPath });
         if (stdout) {
           const outdated = JSON.parse(stdout);
-          for (const [pkg, info] of Object.entries(outdated as any)) {
+          for (const [pkg, info] of Object.entries(outdated as Record<string, any>)) {
             if (info.current !== info.latest) {
               result.vulnerabilities.push({
                 id: crypto.randomUUID(),

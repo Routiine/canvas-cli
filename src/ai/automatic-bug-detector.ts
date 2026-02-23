@@ -545,22 +545,30 @@ export class AutomaticBugDetector extends EventEmitter {
     const files = await this.findSourceFiles(projectPath);
     
     for (const file of files) {
-      const watcher = await fs.watch(file);
-      
-      watcher.on('change', async () => {
-        const bugs = await this.detectBugs(file);
-        
-        if (bugs.length > 0) {
-          this.emit('bugs:found', { file, bugs });
-          
-          // Auto-fix critical bugs
-          for (const bug of bugs) {
-            if (bug.severity === 'critical' && bug.fixable) {
-              await this.fixBug(bug);
+      // Using async iteration for file watching
+      (async () => {
+        try {
+          for await (const event of fs.watch(file)) {
+            if (event.eventType === 'change') {
+              const bugs = await this.detectBugs(file);
+
+              if (bugs.length > 0) {
+                this.emit('bugs:found', { file, bugs });
+
+                // Auto-fix critical bugs
+                for (const bug of bugs) {
+                  if (bug.severity === 'critical' && bug.fixable) {
+                    await this.fixBug(bug);
+                  }
+                }
+              }
             }
           }
+        } catch (error) {
+          // File may have been deleted or moved
+          this.emit('watch:error', { file, error });
         }
-      });
+      })();
     }
   }
   

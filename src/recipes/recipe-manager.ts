@@ -5,7 +5,7 @@
 import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
-import * as nunjucks from 'nunjucks';
+import nunjucks from 'nunjucks';
 import * as os from 'os';
 import { glob } from 'glob';
 import inquirer from 'inquirer';
@@ -606,9 +606,9 @@ export class RecipeManager {
   }
 
   /**
-   * List all recipes from all libraries
+   * List all recipes from all libraries with paths
    */
-  public async listRecipes(category?: string): Promise<Array<{name: string, path: string, recipe: Recipe}>> {
+  public async listRecipesWithPaths(category?: string): Promise<Array<{name: string, path: string, recipe: Recipe}>> {
     const results: Array<{name: string, path: string, recipe: Recipe}> = [];
     
     for (const [libraryName, library] of this.libraries) {

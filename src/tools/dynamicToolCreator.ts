@@ -274,7 +274,15 @@ export class SelfImprovementTool extends BaseTool {
 
   async execute(params: { request: string; context?: string }): Promise<any> {
     const { request, context } = params;
-    
+
+    // Validate request is provided
+    if (!request) {
+      return {
+        action: 'error',
+        message: 'No request provided for self-improvement analysis.'
+      };
+    }
+
     console.log(chalk.cyan('🧠 Analyzing request for self-improvement...'));
 
     // Analyze what's needed

@@ -37,3 +37,9 @@ temp/
 # OS
 Thumbs.db
 Desktop.ini
+
+# Old/backup TypeScript files
+*.old.ts
+
+# Canvas workspace directory
+.canvas/

@@ -59,6 +59,11 @@ export class KnowledgeSearchTool extends BaseTool {
     const index = await fs.readJSON(indexPath);
     const results: SearchResult[] = [];
 
+    // Validate index structure
+    if (!index || !Array.isArray(index.pages)) {
+      return { results: [], message: 'Invalid knowledge base index format' };
+    }
+
     // Search through all pages
     for (const pageInfo of index.pages) {
       const pageHash = this.hashUrl(pageInfo.url);

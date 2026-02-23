@@ -141,8 +141,18 @@ export class WatchFilesTool extends BaseTool {
   private static watcherManager = new FileWatcherManager();
 
   async execute(params: { paths: string[]; recursive?: boolean; extensions?: string[] }): Promise<any> {
-    const paths = params.paths.map(p => path.resolve(p));
-    
+    if (!params.paths || !Array.isArray(params.paths) || params.paths.length === 0) {
+      throw new Error('At least one path is required');
+    }
+
+    // Filter and validate paths
+    const validPaths = params.paths.filter(p => p && typeof p === 'string' && p.trim());
+    if (validPaths.length === 0) {
+      throw new Error('No valid paths specified');
+    }
+
+    const paths = validPaths.map(p => path.resolve(p));
+
     // Build ignore patterns from extensions
     let ignored: any = undefined;
     if (params.extensions && params.extensions.length > 0) {

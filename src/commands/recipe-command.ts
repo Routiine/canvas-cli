@@ -236,7 +236,7 @@ export function createRecipeCommand(): Command {
           type: 'input',
           name: 'tags',
           message: 'Tags (comma-separated):',
-          filter: (input) => input.split(',').map((t: string) => t.trim()).filter(Boolean)
+          filter: (input: string) => input.split(',').map((t: string) => t.trim()).filter(Boolean)
         },
         {
           type: 'confirm',
@@ -421,6 +421,87 @@ export function createRecipeCommand(): Command {
 
   return recipeCommand;
 }
+
+/**
+ * Recipe command wrapper for slash command usage
+ */
+class RecipeCommandWrapper {
+  async execute(args: string): Promise<string> {
+    const parts = args.trim().split(/\s+/);
+    const subCommand = parts[0] || 'list';
+    const recipeName = parts[1];
+    const params = parts.slice(2).join(' ');
+
+    const manager = new RecipeManager();
+    await manager.loadLibraries();
+
+    switch (subCommand) {
+      case 'list':
+      case 'ls':
+        const recipes = await manager.listRecipes();
+        if (recipes.length === 0) {
+          return chalk.yellow('No recipes found. Create one with: /recipe create');
+        }
+        let output = chalk.blue('Available Recipes:\n\n');
+        const grouped = recipes.reduce((acc: any, item: any) => {
+          const category = item.path.includes('built-in') ? 'Built-in' :
+                          item.path.includes('community') ? 'Community' : 'Custom';
+          if (!acc[category]) acc[category] = [];
+          acc[category].push(item);
+          return acc;
+        }, {});
+        Object.entries(grouped).forEach(([category, items]: [string, any]) => {
+          output += chalk.cyan(`${category}:\n`);
+          items.forEach((item: any) => {
+            output += chalk.green(`  • ${item.name}\n`);
+            output += chalk.gray(`    ${item.recipe.description}\n`);
+          });
+        });
+        return output;
+
+      case 'run':
+      case 'exec':
+        if (!recipeName) {
+          return chalk.red('Usage: /recipe run <recipe-name> [params]');
+        }
+        try {
+          let parameters: Record<string, string> = {};
+          if (params) {
+            const pairs = params.match(/(\w+)=([^\s]+)/g);
+            if (pairs) {
+              pairs.forEach(pair => {
+                const [key, value] = pair.split('=');
+                parameters[key] = value;
+              });
+            }
+          }
+          const result = await manager.executeRecipe(recipeName, parameters);
+          if (result.success) {
+            return chalk.green(`Recipe executed!\n\n${result.output}`);
+          } else {
+            return chalk.red(`Recipe failed: ${result.error}`);
+          }
+        } catch (error: any) {
+          return chalk.red(`Failed to run recipe: ${error.message}`);
+        }
+
+      case 'help':
+      case '?':
+        return chalk.blue('Recipe Commands:\n\n') +
+          chalk.cyan('  /recipe list') + chalk.gray('     - List available recipes\n') +
+          chalk.cyan('  /recipe run') + chalk.gray('      - Execute a recipe\n') +
+          chalk.cyan('  /recipe create') + chalk.gray('   - Create a new recipe\n') +
+          chalk.cyan('  /recipe help') + chalk.gray('     - Show this help\n\n') +
+          chalk.gray('Example: /recipe run quick-start project_name=my-app');
+
+      default:
+        return chalk.red(`Unknown recipe command: ${subCommand}\n` +
+          'Use /recipe help for available commands');
+    }
+  }
+}
+
+export const recipeCommand = new RecipeCommandWrapper();
 
 /**
  * Prompt for a parameter value

@@ -31,10 +31,9 @@ abstract class CLIIntegration extends BaseTool {
   }
   
   protected async ensureInstalled(): Promise<void> {
-    if (!this.isInstalled) {
-      await this.checkInstallation();
-    }
-    
+    // Always do a fresh check
+    await this.checkInstallation();
+
     if (!this.isInstalled) {
       throw new Error(`${this.toolCommand} is not installed. Install it first to use this feature.`);
     }
@@ -284,11 +283,13 @@ export class TmuxTool extends CLIIntegration {
           const { stdout } = await execAsync('tmux list-sessions');
           const sessions = stdout.trim().split('\n').map(line => {
             const [name, rest] = line.split(':');
-            return { name, details: rest.trim() };
+            return { name, details: rest?.trim() || '' };
           });
           return { sessions, success: true };
         } catch (error: any) {
-          if (error.message.includes('no server running')) {
+          // Handle various "no server" error messages
+          const errMsg = error.message || error.stderr || '';
+          if (errMsg.includes('no server running') || errMsg.includes('error connecting') || errMsg.includes('No such file')) {
             return { sessions: [], message: 'No tmux sessions running', success: true };
           }
           throw error;

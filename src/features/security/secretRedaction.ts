@@ -129,7 +129,7 @@ export class SecretRedactionSystem extends EventEmitter {
       {
         id: 'aws-secret-key',
         name: 'AWS Secret Key',
-        pattern: /[A-Za-z0-9/+=]{40}/g,
+        pattern: /(AWS_SECRET_ACCESS_KEY|aws_secret_access_key)\s*[=:]\s*([A-Za-z0-9/+=]{40})/g,
         replacement: '***AWS_SECRET_REDACTED***',
         category: 'api-key',
         severity: 'critical',
@@ -380,7 +380,7 @@ export class SecretRedactionSystem extends EventEmitter {
     const absolutePath = path.resolve(filePath);
     const content = await fs.readFile(absolutePath, 'utf8');
     const fileStats = await fs.stat(absolutePath);
-    const fileHash = crypto.createHash('md5').update(content).digest('hex');
+    const fileHash = crypto.createHash('sha256').update(content).digest('hex');
 
     const redactionResult = this.redactText(content, `file:${absolutePath}`);
 
@@ -674,15 +674,26 @@ export class SecretRedactionSystem extends EventEmitter {
   }
 
   private encrypt(text: string): string {
-    const cipher = crypto.createCipher('aes-256-cbc', this.encryptionKey);
+    const salt = crypto.randomBytes(16);
+    const iv = crypto.randomBytes(16);
+    const key = crypto.scryptSync(this.encryptionKey, salt, 32);
+    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    return encrypted;
+    return salt.toString('hex') + ':' + iv.toString('hex') + ':' + encrypted;
   }
 
   private decrypt(encryptedText: string): string {
-    const decipher = crypto.createDecipher('aes-256-cbc', this.encryptionKey);
-    let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+    const parts = encryptedText.split(':');
+    if (parts.length !== 3) {
+      throw new Error('Invalid encrypted data format');
+    }
+    const [saltHex, ivHex, encrypted] = parts;
+    const salt = Buffer.from(saltHex, 'hex');
+    const iv = Buffer.from(ivHex, 'hex');
+    const key = crypto.scryptSync(this.encryptionKey, salt, 32);
+    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
   }

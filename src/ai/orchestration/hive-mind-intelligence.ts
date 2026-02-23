@@ -5,6 +5,7 @@
 
 import { EventEmitter } from 'events';
 import * as crypto from 'crypto';
+import * as os from 'os';
 import { AgentMemory } from '../../agents/memory/agent-memory.js';
 
 // Worker agent types
@@ -652,11 +653,11 @@ export class QueenAI extends EventEmitter {
   }
   
   // Collective Intelligence Updates
-  private updateCollectiveIntelligence(): void {
+  private async updateCollectiveIntelligence(): Promise<void> {
     // Aggregate worker knowledge
     for (const worker of this.workers.values()) {
-      const knowledge = worker.memory.getRecentMemories(10);
-      
+      const knowledge = await worker.memory.getRecentMemories(undefined, 10);
+
       for (const mem of knowledge) {
         const key = `${worker.type}_${mem.type}`;
         const current = this.collectiveIntelligence.knowledgeBase.get(key) || [];
@@ -879,24 +880,22 @@ export class QueenAI extends EventEmitter {
   
   private recordSuccess(worker: WorkerAgent, task: HiveTask): void {
     const memory = {
-      type: 'success',
       task: task.id,
       approach: this.inferStrategy(task),
       timestamp: new Date()
     };
-    
-    worker.memory.addMemory(memory);
+
+    worker.memory.addMemory('learning', memory);
   }
-  
+
   private recordFailure(worker: WorkerAgent, task: HiveTask): void {
     const memory = {
-      type: 'failure',
       task: task.id,
       error: task.error,
       timestamp: new Date()
     };
-    
-    worker.memory.addMemory(memory);
+
+    worker.memory.addMemory('error', memory);
   }
   
   private inferStrategy(task: HiveTask): string {

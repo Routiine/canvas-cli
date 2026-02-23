@@ -47,13 +47,59 @@ export class SessionSharingSystem extends EventEmitter {
   private port: number = 3456;
   private recordingsDir: string;
   private activeConnections: Map<string, WebSocket> = new Map();
-  
+  private replayTimeouts: Set<NodeJS.Timeout> = new Set();
+  private cleanupInterval: NodeJS.Timeout | null = null;
+
+  // Limits to prevent memory leaks
+  private static readonly MAX_COMMANDS_PER_SESSION = 1000;
+  private static readonly MAX_BLOCKS_PER_SESSION = 500;
+  private static readonly SESSION_CLEANUP_INTERVAL = 60000; // 1 minute
+  private static readonly SESSION_RETENTION_MS = 3600000; // 1 hour after stopping
+
   constructor() {
     super();
     this.app = express();
     this.recordingsDir = path.join(os.homedir(), '.canvas-cli', 'recordings');
     fs.ensureDirSync(this.recordingsDir);
     this.setupServer();
+    this.startCleanupInterval();
+  }
+
+  /**
+   * Start periodic cleanup of old sessions and stale connections
+   */
+  private startCleanupInterval(): void {
+    this.cleanupInterval = setInterval(() => {
+      this.cleanupStaleSessions();
+      this.cleanupStaleConnections();
+    }, SessionSharingSystem.SESSION_CLEANUP_INTERVAL);
+  }
+
+  /**
+   * Clean up sessions that have been stopped for a while
+   */
+  private cleanupStaleSessions(): void {
+    const now = Date.now();
+    for (const [sessionId, session] of this.sessions) {
+      if (!session.isLive) {
+        const stoppedTime = session.startTime.getTime();
+        if (now - stoppedTime > SessionSharingSystem.SESSION_RETENTION_MS) {
+          this.sessions.delete(sessionId);
+          console.log(chalk.dim(`🧹 Cleaned up stale session: ${sessionId}`));
+        }
+      }
+    }
+  }
+
+  /**
+   * Clean up WebSocket connections that are no longer open
+   */
+  private cleanupStaleConnections(): void {
+    for (const [connId, ws] of this.activeConnections) {
+      if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        this.activeConnections.delete(connId);
+      }
+    }
   }
   
   private setupServer(): void {
@@ -181,28 +227,38 @@ export class SessionSharingSystem extends EventEmitter {
   broadcastCommand(sessionId: string, command: string, output: string): void {
     const session = this.sessions.get(sessionId);
     if (!session || !session.isLive) return;
-    
+
     const entry: CommandHistory = {
       command,
       output,
       timestamp: new Date(),
       executedBy: session.owner
     };
-    
+
     session.commands.push(entry);
-    
+
+    // Enforce limit to prevent memory leak
+    if (session.commands.length > SessionSharingSystem.MAX_COMMANDS_PER_SESSION) {
+      session.commands.shift(); // Remove oldest command
+    }
+
     this.broadcast(sessionId, {
       type: 'command',
       data: entry
     });
   }
-  
+
   broadcastBlock(sessionId: string, block: any): void {
     const session = this.sessions.get(sessionId);
     if (!session || !session.isLive) return;
-    
+
     session.blocks.push(block);
-    
+
+    // Enforce limit to prevent memory leak
+    if (session.blocks.length > SessionSharingSystem.MAX_BLOCKS_PER_SESSION) {
+      session.blocks.shift(); // Remove oldest block
+    }
+
     this.broadcast(sessionId, {
       type: 'block',
       data: block
@@ -461,21 +517,70 @@ export class SessionSharingSystem extends EventEmitter {
       console.log(chalk.red(`Recording not found: ${sessionId}`));
       return;
     }
-    
+
     const recording = fs.readJsonSync(recordingPath);
     console.log(chalk.cyan(`\n🎬 Replaying session: ${recording.name}`));
     console.log(chalk.dim(`   Started: ${recording.startTime}`));
     console.log(chalk.dim(`   Commands: ${recording.commands.length}`));
-    
-    // Replay commands with timing
+
+    // Replay commands with timing - track timeouts for cleanup
     let delay = 0;
     for (const cmd of recording.commands) {
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         console.log(chalk.green(`\n> ${cmd.command}`));
         console.log(chalk.dim(cmd.output));
+        this.replayTimeouts.delete(timeout);
       }, delay);
+      this.replayTimeouts.add(timeout);
       delay += 1000; // 1 second between commands
     }
+  }
+
+  /**
+   * Stop any active replay
+   */
+  stopReplay(): void {
+    for (const timeout of this.replayTimeouts) {
+      clearTimeout(timeout);
+    }
+    this.replayTimeouts.clear();
+  }
+
+  /**
+   * Shutdown the session sharing system and clean up resources
+   */
+  shutdown(): void {
+    // Stop cleanup interval
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = null;
+    }
+
+    // Stop any replays
+    this.stopReplay();
+
+    // Close all WebSocket connections
+    for (const [connId, ws] of this.activeConnections) {
+      ws.close();
+    }
+    this.activeConnections.clear();
+
+    // Close WebSocket server
+    if (this.wss) {
+      this.wss.close();
+      this.wss = null;
+    }
+
+    // Close HTTP server
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+    }
+
+    // Clear all sessions
+    this.sessions.clear();
+
+    console.log(chalk.yellow('📴 Session sharing system shutdown complete'));
   }
 }
 

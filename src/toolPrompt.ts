@@ -1,110 +1,209 @@
 import { Tool } from './types.js';
 
+/**
+ * Create a simple, universal tool prompt that works with any model
+ */
 export function createToolPrompt(userPrompt: string, tools: Tool[]): string {
-  const toolDescriptions = tools.map(tool => {
-    const params = Object.entries(tool.parameters || {})
-      .map(([key, value]: [string, any]) => `    ${key}: ${value.description}${value.optional ? ' (optional)' : ''}`)
-      .join('\n');
-    
-    return `  - ${tool.name}: ${tool.description}${params ? '\n' + params : ''}`;
-  }).join('\n');
+  // Only essential tools to keep prompt short
+  const essentialTools = ['run_shell_command', 'write_file', 'read_file', 'edit_file', 'list_directory'];
+  const coreTools = tools.filter(t => essentialTools.includes(t.name));
 
-  return `You are Canvas CLI, an AI assistant with access to various tools to help users.
+  const toolList = coreTools.map(t => `${t.name}: ${t.description}`).join('\n');
 
-AVAILABLE TOOLS:
-${toolDescriptions}
+  return `Use tools to complete tasks.
 
-IMPORTANT: When you need to perform an action, you MUST use the following format:
+Tools:
+${toolList}
 
-To use a tool, write:
-<tool>tool_name</tool>
-<parameters>
-{
-  "param1": "value1",
-  "param2": "value2"
+Format:
+TOOL: tool_name
+PARAMS: {"key": "value"}
+
+Example:
+TOOL: run_shell_command
+PARAMS: {"command": "mkdir -p ~/Documents/test"}
+
+TOOL: write_file
+PARAMS: {"path": "~/Documents/test/hello.html", "content": "<!DOCTYPE html><html><body><h1>Hello World</h1></body></html>"}
+
+Task: ${userPrompt}
+
+Execute now:`;
 }
-</parameters>
 
-For example, to read a file:
-<tool>read_file</tool>
-<parameters>
-{
-  "path": "example.txt"
-}
-</parameters>
+/**
+ * Create a simple, universal tool prompt that works with any model
+ */
+export function createClaudeStyleToolPrompt(userPrompt: string, tools: Tool[]): string {
+  // Only include essential tools to keep prompt short
+  const essentialTools = ['run_shell_command', 'write_file', 'read_file', 'edit_file', 'list_directory'];
+  const coreTools = tools.filter(t => essentialTools.includes(t.name));
 
-Or to write a file:
-<tool>write_file</tool>
-<parameters>
-{
-  "path": ".doc/test.md",
-  "content": "Hello World"
-}
-</parameters>
+  const toolList = coreTools.map(t => `${t.name}: ${t.description}`).join('\n');
 
-RULES:
-1. ALWAYS use tools to perform actions instead of explaining how to do them
-2. When asked to read, write, or manipulate files, USE THE TOOLS
-3. When asked about the project structure, USE read_file or list_directory tools
-4. Do not just explain what you would do - actually DO IT using the tools
-5. You can use multiple tools in sequence to complete complex tasks
+  return `You are an AI assistant. Use tools to complete tasks.
 
-USER REQUEST: ${userPrompt}
+Tools:
+${toolList}
 
-Now, complete the user's request using the available tools. Remember to USE the tools, don't just explain how to use them.`;
+Format - use exactly:
+TOOL: tool_name
+PARAMS: {"key": "value"}
+
+Examples:
+TOOL: run_shell_command
+PARAMS: {"command": "mkdir -p test"}
+
+TOOL: write_file
+PARAMS: {"path": "test/hello.html", "content": "<html><body>Hello</body></html>"}
+
+Task: ${userPrompt}
+
+Execute the task using the tools above. Output TOOL/PARAMS directly.`;
 }
 
 export function parseToolCalls(response: string): Array<{name: string, parameters: any}> {
-  const toolCalls = [];
-  
+  const toolCalls: Array<{name: string, parameters: any}> = [];
+
+  // Helper to add tool call if not duplicate
+  const addToolCall = (name: string, params: any) => {
+    const isDuplicate = toolCalls.some(tc =>
+      tc.name === name && JSON.stringify(tc.parameters) === JSON.stringify(params)
+    );
+    if (!isDuplicate) {
+      toolCalls.push({ name, parameters: params });
+      // Debug output removed for cleaner UX
+    }
+  };
+
   // Try XML-style format first
   const xmlRegex = /<tool>(.*?)<\/tool>\s*<parameters>([\s\S]*?)<\/parameters>/g;
   let match;
   while ((match = xmlRegex.exec(response)) !== null) {
     const toolName = match[1].trim();
     const parametersStr = match[2].trim();
-    
     try {
       const parameters = JSON.parse(parametersStr);
-      toolCalls.push({ name: toolName, parameters });
+      addToolCall(toolName, parameters);
     } catch (error) {
-      console.error(`Failed to parse parameters for tool ${toolName}:`, error);
+      // Ignore parse errors
     }
   }
-  
-  // Try simple format: TOOL: name PARAMS: {...}
-  // Split by TOOL: to handle each tool call separately
-  const toolSections = response.split(/(?=TOOL:)/g);
-  
-  for (const section of toolSections) {
-    if (!section.includes('TOOL:')) continue;
-    
-    const toolMatch = section.match(/TOOL:\s*(\w+)/i);
-    const paramsMatch = section.match(/PARAMS:\s*(\{[\s\S]*?\})(?=\s*(?:TOOL:|$))/i);
-    
-    if (toolMatch && paramsMatch) {
-      const toolName = toolMatch[1].trim();
-      const parametersStr = paramsMatch[1].trim();
-      
+
+  // Try bracket format: [TOOL: name] {...} or [TOOL: name] PARAMS: {...}
+  const bracketRegex = /\[TOOL:\s*(\w+)\](?:\s*PARAMS:)?\s*(\{[\s\S]*?\})/gi;
+  while ((match = bracketRegex.exec(response)) !== null) {
+    const toolName = match[1].trim();
+    const parametersStr = match[2].trim();
+    try {
+      const parameters = JSON.parse(parametersStr);
+      addToolCall(toolName, parameters);
+    } catch (error) {
+      // Try balanced brace extraction for complex JSON
+    }
+  }
+
+  // Try inline format: TOOL: name PARAMS: {...} (on same line)
+  const inlineRegex = /TOOL:\s*(\w+)\s*PARAMS:\s*(\{[^}]+\})/gi;
+  while ((match = inlineRegex.exec(response)) !== null) {
+    const toolName = match[1].trim();
+    const parametersStr = match[2].trim();
+    try {
+      const parameters = JSON.parse(parametersStr);
+      addToolCall(toolName, parameters);
+    } catch (error) {
+      // Try to fix common JSON issues (unescaped quotes, etc.)
       try {
-        const parameters = JSON.parse(parametersStr);
-        // Check if this tool call is already in the list (avoid duplicates)
-        const isDuplicate = toolCalls.some(tc => 
-          tc.name === toolName && JSON.stringify(tc.parameters) === JSON.stringify(parameters)
-        );
-        if (!isDuplicate) {
-          toolCalls.push({ name: toolName, parameters });
-          console.log(`🔧 Parsed tool call: ${toolName}`);
-        }
-      } catch (error) {
-        console.error(`Failed to parse parameters for tool ${toolName}: ${error}`);
-        console.error(`Parameters string was: ${parametersStr.substring(0, 200)}...`);
+        const fixed = parametersStr.replace(/\\n/g, '\\\\n');
+        const parameters = JSON.parse(fixed);
+        addToolCall(toolName, parameters);
+      } catch (e) {
+        console.log(`⚠️ Could not parse params for ${toolName}: ${parametersStr.substring(0, 50)}...`);
       }
     }
   }
+
+  // Try multiline format: TOOL: name\nPARAMS: {...}
+  const multilineRegex = /TOOL:\s*(\w+)\s*\n\s*PARAMS:\s*(\{[\s\S]*?\})/gi;
+  while ((match = multilineRegex.exec(response)) !== null) {
+    const toolName = match[1].trim();
+    const parametersStr = match[2].trim();
+    try {
+      const parameters = JSON.parse(parametersStr);
+      addToolCall(toolName, parameters);
+    } catch (error) {
+      // Ignore
+    }
+  }
+
+  // Try to find tool calls inside markdown code blocks
+  const codeBlockRegex = /```[\s\S]*?TOOL:\s*(\w+)(?:\s+PARAMS:|\s*\n\s*PARAMS:)\s*(\{[\s\S]*?\})[\s\S]*?```/gi;
+  while ((match = codeBlockRegex.exec(response)) !== null) {
+    const toolName = match[1].trim();
+    const parametersStr = match[2].trim();
+    try {
+      const parameters = JSON.parse(parametersStr);
+      addToolCall(toolName, parameters);
+    } catch (error) {
+      // Ignore
+    }
+  }
   
-  // Try an alternative parsing approach for JSON with nested quotes
-  // Look for balanced braces after PARAMS:
+  // Try an alternative parsing approach for JSON with nested braces/quotes
+  // This handles inline format: TOOL: name PARAMS: {...} with balanced braces
+  const inlineAltRegex = /TOOL:\s*(\w+)\s+PARAMS:\s*/g;
+  let inlineAltMatch;
+  while ((inlineAltMatch = inlineAltRegex.exec(response)) !== null) {
+    const toolName = inlineAltMatch[1].trim();
+    const startIdx = inlineAltMatch.index + inlineAltMatch[0].length;
+
+    // Find balanced braces
+    let braceCount = 0;
+    let endIdx = startIdx;
+    let inString = false;
+    let escapeNext = false;
+
+    for (let i = startIdx; i < response.length; i++) {
+      const char = response[i];
+
+      if (escapeNext) {
+        escapeNext = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escapeNext = true;
+        continue;
+      }
+
+      if (char === '"' && !escapeNext) {
+        inString = !inString;
+      }
+
+      if (!inString) {
+        if (char === '{') braceCount++;
+        if (char === '}') {
+          braceCount--;
+          if (braceCount === 0) {
+            endIdx = i + 1;
+            break;
+          }
+        }
+      }
+    }
+
+    if (endIdx > startIdx) {
+      const parametersStr = response.substring(startIdx, endIdx);
+      try {
+        const parameters = JSON.parse(parametersStr);
+        addToolCall(toolName, parameters);
+      } catch (error) {
+        // Silent fail - try other parsers
+      }
+    }
+  }
+
+  // Look for balanced braces after PARAMS: (multiline format)
   const altRegex = /TOOL:\s*(\w+)\s*\n\s*PARAMS:\s*/g;
   let altMatch;
   while ((altMatch = altRegex.exec(response)) !== null) {
@@ -155,14 +254,12 @@ export function parseToolCalls(response: string): Array<{name: string, parameter
         );
         if (!isDuplicate) {
           toolCalls.push({ name: toolName, parameters });
-          console.log(`🔧 Parsed tool call (balanced): ${toolName}`);
         }
       } catch (error) {
         // Silent fail
       }
     }
   }
-  
-  console.log(`🔍 Found ${toolCalls.length} tool call(s) in response`);
+
   return toolCalls;
 }

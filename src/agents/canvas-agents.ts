@@ -46,7 +46,7 @@ export class CanvasAgentSystem extends EventEmitter {
 
   constructor(ollamaUrl: string, model: string, themeName: string = 'default') {
     super();
-    this.ollama = new OllamaService(ollamaUrl, model);
+    this.ollama = new OllamaService({ baseUrl: ollamaUrl, defaultModel: model });
     this.fileService = new FileService();
     this.themeManager = new ThemeManager(themeName);
     this.agents = new Map();
@@ -259,21 +259,18 @@ Focus on both functional and non-functional requirements.`,
     
     this.emit('agent:start', { agent: agentName, role: agent.name });
     
-    const response = await this.ollama.generate(
-      `${agent.systemPrompt}\n\n${prompt}`,
-      {
+    const response = await this.ollama.generate({
+      model: this.ollama.getDefaultModel(),
+      prompt: `${agent.systemPrompt}\n\n${prompt}`,
+      options: {
         temperature: 0.7,
-        top_p: 0.9,
-        stream: true,
-        onToken: (token) => {
-          this.emit('agent:token', { agent: agentName, token });
-        }
+        top_p: 0.9
       }
-    );
-    
-    this.emit('agent:complete', { agent: agentName, response });
-    
-    return response;
+    });
+
+    this.emit('agent:complete', { agent: agentName, response: response.response });
+
+    return response.response;
   }
 
   /**

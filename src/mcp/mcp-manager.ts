@@ -38,6 +38,11 @@ export class MCPManager extends EventEmitter {
   private config: MCPConfig;
   private configPath: string;
   private initialized: boolean = false;
+  private restartTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private isShuttingDown: boolean = false;
+
+  // Subprocess cleanup settings
+  private static readonly GRACEFUL_SHUTDOWN_TIMEOUT = 5000; // 5 seconds
 
   static getInstance(): MCPManager {
     if (!MCPManager.instance) {
@@ -50,6 +55,50 @@ export class MCPManager extends EventEmitter {
     super();
     this.configPath = path.join(process.cwd(), '.canvas-cli', 'mcp-config.json');
     this.config = this.loadConfig();
+    this.setupProcessExitHandler();
+  }
+
+  /**
+   * Setup handler for main process exit to cleanup subprocesses
+   */
+  private setupProcessExitHandler(): void {
+    const cleanup = () => {
+      if (!this.isShuttingDown) {
+        this.isShuttingDown = true;
+        this.forceStopAllSync();
+      }
+    };
+
+    process.on('exit', cleanup);
+    process.on('SIGINT', () => { cleanup(); process.exit(0); });
+    process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+    process.on('uncaughtException', (err) => {
+      console.error('Uncaught exception:', err);
+      cleanup();
+      process.exit(1);
+    });
+  }
+
+  /**
+   * Synchronously force stop all processes (for process exit handler)
+   */
+  private forceStopAllSync(): void {
+    // Cancel all pending restart timeouts
+    for (const timeout of this.restartTimeouts.values()) {
+      clearTimeout(timeout);
+    }
+    this.restartTimeouts.clear();
+
+    // Force kill all processes
+    for (const [serverName, proc] of this.processes) {
+      try {
+        proc.kill('SIGKILL');
+      } catch (e) {
+        // Ignore errors during cleanup
+      }
+    }
+    this.processes.clear();
+    this.clients.clear();
   }
 
   /**
@@ -237,14 +286,25 @@ export class MCPManager extends EventEmitter {
    */
   private handleServerError(serverName: string, error: Error): void {
     this.emit('server-error', { server: serverName, error });
-    
+
+    // Don't restart if shutting down
+    if (this.isShuttingDown) return;
+
+    // Cancel any existing restart timeout for this server
+    const existingTimeout = this.restartTimeouts.get(serverName);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
     // Attempt to restart server
     const server = this.config.servers.find(s => s.name === serverName);
     if (server) {
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
+        this.restartTimeouts.delete(serverName);
         console.log(`Attempting to restart MCP server: ${serverName}`);
         this.startServer(server).catch(console.error);
       }, 5000);
+      this.restartTimeouts.set(serverName, timeout);
     }
   }
 
@@ -266,22 +326,69 @@ export class MCPManager extends EventEmitter {
   }
 
   /**
-   * Stop an MCP server
+   * Stop an MCP server with graceful shutdown
    */
   async stopServer(serverName: string): Promise<void> {
+    // Cancel any pending restart timeout
+    const restartTimeout = this.restartTimeouts.get(serverName);
+    if (restartTimeout) {
+      clearTimeout(restartTimeout);
+      this.restartTimeouts.delete(serverName);
+    }
+
     const client = this.clients.get(serverName);
     if (client) {
-      await client.close();
+      try {
+        await client.close();
+      } catch (e) {
+        // Ignore close errors
+      }
       this.clients.delete(serverName);
     }
 
-    const process = this.processes.get(serverName);
-    if (process) {
-      process.kill();
+    const proc = this.processes.get(serverName);
+    if (proc) {
+      await this.gracefulKill(proc, serverName);
       this.processes.delete(serverName);
     }
 
     this.emit('server-stopped', serverName);
+  }
+
+  /**
+   * Gracefully kill a process (SIGTERM, wait, then SIGKILL)
+   */
+  private async gracefulKill(proc: ChildProcess, name: string): Promise<void> {
+    return new Promise<void>((resolve) => {
+      // Already dead
+      if (!proc.pid || proc.killed) {
+        resolve();
+        return;
+      }
+
+      let forceKillTimeout: NodeJS.Timeout;
+
+      const onExit = () => {
+        clearTimeout(forceKillTimeout);
+        resolve();
+      };
+
+      proc.once('exit', onExit);
+
+      // Try graceful shutdown first
+      proc.kill('SIGTERM');
+
+      // Force kill if not exited after timeout
+      forceKillTimeout = setTimeout(() => {
+        proc.removeListener('exit', onExit);
+        try {
+          proc.kill('SIGKILL');
+        } catch (e) {
+          // Process may already be dead
+        }
+        resolve();
+      }, MCPManager.GRACEFUL_SHUTDOWN_TIMEOUT);
+    });
   }
 
   /**

@@ -7,6 +7,7 @@ import chalk from 'chalk';
 import readline from 'readline';
 import { loadConfig } from '../config.js';
 import { ThemeManager } from '../themes.js';
+import { getCurrentModel } from '../models/model-manager.js';
 
 export interface BorderConfig {
   style?: 'single' | 'double' | 'rounded' | 'bold' | 'ascii' | 'minimal' | 'clean';
@@ -100,26 +101,27 @@ export class UnifiedBorder {
     const themeName = appConfig.theme || appConfig.ui?.theme || 'default';
     this.themeManager = new ThemeManager(themeName);
     
-    // Get theme primary color if useTheme is enabled
-    const themeColor = config.useTheme !== false ? 
-      this.themeManager.getTheme().colors.primary : 
-      (config.color || '#00ff88');
-    
-    // Get terminal width dynamically, with fallback
+    // Get theme primary color if useTheme is enabled - default to grey
+    const themeColor = config.useTheme !== false ?
+      this.themeManager.getTheme().colors.primary :
+      (config.color || '#808080');
+
+    // Get terminal width dynamically - use full width minus margins
     const terminalWidth = process.stdout.columns || 80;
     // Leave space for margins (2 spaces on left + 2 for border chars)
-    const maxWidth = Math.min(terminalWidth - 6, 74);
-    const defaultWidth = Math.min(maxWidth, config.width || 70);
-    
+    const defaultWidth = config.width || (terminalWidth - 4);
+
     this.config = {
-      style: config.style || 'double',
+      style: config.style || 'single',
       color: themeColor,
       width: defaultWidth,
       showHelp: config.showHelp !== false,
       showMode: config.showMode !== false,
       clearScreen: config.clearScreen !== false,
       title: config.title || '',
-      useTheme: config.useTheme !== false
+      useTheme: config.useTheme !== false,
+      padding: config.padding || 0,
+      align: config.align || 'left'
     };
     this.chars = BORDER_STYLES[this.config.style];
   }
@@ -132,63 +134,50 @@ export class UnifiedBorder {
       console.clear();
     }
 
-    const color = this.config.useTheme ? 
+    const color = this.config.useTheme ?
       (text: string) => this.themeManager.primary(text) :
       chalk.hex(this.config.color);
     const width = this.config.width;
     const chars = this.chars;
 
-    // Draw top border
-    const topBorder = `${chars.topLeft}${chars.horizontal.repeat(width)}${chars.topRight}`;
-    console.log('  ' + color(topBorder));
-    
-    // Draw middle line (where input will go) - all on one line
-    const promptColor = this.config.useTheme ? 
-      this.themeManager.primary(prompt + ' ') : 
+    // Draw a clean separator line
+    const separator = chars.horizontal.repeat(width + 2);
+    console.log('  ' + color(separator));
+
+    // Show help and mode
+    if (this.config.showHelp) {
+      console.log(this.themeManager.dim('  Type /help for commands • /tools for available tools • exit to quit'));
+    }
+
+    if (this.config.showMode && executionMode !== undefined) {
+      const model = getCurrentModel() || loadConfig().defaultModel || 'llama3.2';
+      const mode = executionMode ? 'DEV' : 'ASK';
+      const modeLabel = executionMode ? '(exec)' : '(plan)';
+      const statusText = `  ${mode} ${modeLabel} · ${model}`;
+      const modeText = executionMode ?
+        this.themeManager.success(statusText) :
+        this.themeManager.info(statusText);
+      console.log(modeText);
+    }
+
+    console.log('');
+
+    // Simple prompt - no cursor movement needed
+    const promptText = this.config.useTheme ?
+      this.themeManager.primary(prompt + ' ') :
       chalk.hex(this.config.color)(prompt + ' ');
-    
-    // Write left border with spacing
-    process.stdout.write('  ' + color(chars.vertical));
-    
-    // Create the readline interface with prompt
+
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout,
-      prompt: promptColor
+      prompt: '  ' + promptText
     });
 
-    // Show prompt immediately (cursor is positioned after left border)
     rl.prompt();
 
     return new Promise((resolve) => {
       rl.on('line', (input) => {
         rl.close();
-        
-        // Calculate padding needed to reach right border
-        const totalContent = prompt.length + 1 + input.length; // prompt + space + input
-        const remainingSpace = width - totalContent;
-        
-        // Complete the line with padding and right border
-        const padding = remainingSpace > 0 ? ' '.repeat(remainingSpace) : '';
-        console.log(padding + color(chars.vertical));
-        
-        // Draw bottom border
-        const bottomBorder = `${chars.bottomLeft}${chars.horizontal.repeat(width)}${chars.bottomRight}`;
-        console.log('  ' + color(bottomBorder));
-        
-        // Show help text and mode indicator below the box
-        if (this.config.showHelp) {
-          console.log(this.themeManager.dim('  Type /help for commands • /tools for available tools • exit to quit'));
-        }
-        
-        if (this.config.showMode && executionMode !== undefined) {
-          const mode = executionMode ? 'DEV MODE (EXECUTION enabled)' : 'ASK MODE (PLANNING only)';
-          const modeText = executionMode ? 
-            this.themeManager.success(`  ${mode}`) : 
-            this.themeManager.info(`  ${mode}`);
-          console.log(modeText);
-        }
-        
         resolve(input.trim());
       });
     });
@@ -274,10 +263,13 @@ export class UnifiedBorder {
 
     // Mode indicator below the box
     if (this.config.showMode && executionMode !== undefined) {
-      const mode = executionMode ? 'DEV MODE (EXECUTION enabled)' : 'ASK MODE (PLANNING only)';
-      const modeText = executionMode ? 
-        this.themeManager.success(`  ${mode}`) : 
-        this.themeManager.info(`  ${mode}`);
+      const model = getCurrentModel() || loadConfig().defaultModel || 'llama3.2';
+      const mode = executionMode ? 'DEV' : 'ASK';
+      const modeLabel = executionMode ? '(exec)' : '(plan)';
+      const statusText = `  ${mode} ${modeLabel} · ${model}`;
+      const modeText = executionMode ?
+        this.themeManager.success(statusText) :
+        this.themeManager.info(statusText);
       console.log(modeText);
     }
   }
@@ -362,19 +354,19 @@ export class UnifiedBorder {
    */
   static async getCleanInput(executionMode: boolean = true): Promise<string> {
     const border = new UnifiedBorder({
-      style: 'clean',
-      color: '#606060',
+      style: 'single',
+      color: '#808080',
       showHelp: true,
       showMode: true
     });
-    
+
     return await border.getBorderedInput('>', executionMode);
   }
 
   /**
    * Static method for status bar box
    */
-  static drawStatusBar(status: string, mode: string, color: string = '#00ff88'): string {
+  static drawStatusBar(status: string, mode: string, color: string = '#808080'): string {
     return UnifiedBorder.drawBox(`${status} | ${mode}`, {
       style: 'minimal',
       color,
@@ -387,8 +379,8 @@ export class UnifiedBorder {
    */
   static drawError(error: string): string {
     return UnifiedBorder.drawBox(error, {
-      style: 'double',
-      color: '#ff0000',
+      style: 'single',
+      color: '#707070',
       width: Math.min(80, process.stdout.columns - 4)
     });
   }
@@ -397,13 +389,13 @@ export class UnifiedBorder {
    * Static method for performance dashboard box
    */
   static drawMetrics(metrics: Record<string, any>): string {
-    const lines = Object.entries(metrics).map(([key, value]) => 
+    const lines = Object.entries(metrics).map(([key, value]) =>
       `${key}: ${value}`
     );
-    
+
     return UnifiedBorder.drawBox(lines, {
       style: 'single',
-      color: '#00ffff'
+      color: '#808080'
     });
   }
 }

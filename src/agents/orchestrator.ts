@@ -6,6 +6,13 @@ import { getNotificationSystem } from '../hooks/notificationSystem.js';
 import { getTranscriptManager } from '../hooks/transcriptManager.js';
 import { getSmartCompletionSystem } from '../hooks/smartCompletion.js';
 import { getModeManager } from '../modes/modeManager.js';
+import {
+  getAutonomousOrchestrator,
+  AutonomousOrchestrator,
+  AutonomousConfig,
+  TaskResult,
+  AutonomousEvent
+} from './autonomous/index.js';
 
 interface AgentTask {
   id: string;
@@ -13,9 +20,11 @@ interface AgentTask {
   task: any;
   priority: number;
   dependencies?: string[];
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
   result?: any;
   error?: any;
+  timeout?: number; // Task-specific timeout in ms
+  startedAt?: Date;
 }
 
 interface Workflow {
@@ -32,7 +41,16 @@ export class OrchestratorAgent extends EventEmitter {
   private completedTasks: Map<string, AgentTask> = new Map();
   private workflows: Map<string, Workflow> = new Map();
   private isRunning: boolean = false;
-  
+  private taskAbortControllers: Map<string, AbortController> = new Map();
+
+  // Autonomous mode support
+  private autonomousEnabled: boolean = false;
+  private autonomousOrchestrator: AutonomousOrchestrator | null = null;
+  private autonomousConfig: Partial<AutonomousConfig> = {};
+
+  // Default timeout for task execution (2 minutes)
+  private static readonly DEFAULT_TASK_TIMEOUT = 120000;
+
   constructor() {
     super();
     this.initializeWorkflows();
@@ -209,7 +227,7 @@ export class OrchestratorAgent extends EventEmitter {
       throw new Error(`Agent '${agentName}' is not available in ${modeManager.getCurrentMode()} mode`);
     }
     
-    const taskId = `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const taskId = `task-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const agentTask: AgentTask = {
       id: taskId,
       agent: agentName,
@@ -242,47 +260,137 @@ export class OrchestratorAgent extends EventEmitter {
   private async processTasks(): Promise<void> {
     // Get next available task
     const task = this.getNextAvailableTask();
-    
+
     if (!task) {
       return;
     }
-    
+
     // Mark as running
     task.status = 'running';
+    task.startedAt = new Date();
     this.runningTasks.set(task.id, task);
-    
+
     // Remove from queue
     const index = this.taskQueue.indexOf(task);
     if (index > -1) {
       this.taskQueue.splice(index, 1);
     }
-    
+
     console.log(chalk.cyan(`\n▶️ Running task ${task.id} with ${task.agent}`));
-    
+
+    // Create abort controller for this task
+    const abortController = new AbortController();
+    this.taskAbortControllers.set(task.id, abortController);
+
+    // Set up timeout
+    const timeoutMs = task.timeout || OrchestratorAgent.DEFAULT_TASK_TIMEOUT;
+    const timeoutId = setTimeout(() => {
+      abortController.abort();
+      this.handleTaskTimeout(task);
+    }, timeoutMs);
+
     try {
-      // Execute task with agent
+      // Execute task with agent and timeout support
       const agent = this.agents.get(task.agent);
-      const result = await agent.execute(task.task);
-      
+      const result = await this.executeWithAbort(
+        agent.execute(task.task),
+        abortController.signal,
+        task
+      );
+
+      // Clear timeout on success
+      clearTimeout(timeoutId);
+      this.taskAbortControllers.delete(task.id);
+
       // Mark as completed
       task.status = 'completed';
       task.result = result;
       this.completedTasks.set(task.id, task);
       this.runningTasks.delete(task.id);
-      
+
       console.log(chalk.green(`✅ Task ${task.id} completed`));
       this.emit('task-completed', task);
-      
+
     } catch (error: any) {
+      // Clear timeout on error
+      clearTimeout(timeoutId);
+      this.taskAbortControllers.delete(task.id);
+
+      // Check if this was a timeout (already handled by handleTaskTimeout)
+      if ((task.status as string) === 'timeout') {
+        return;
+      }
+
       // Mark as failed
       task.status = 'failed';
       task.error = error;
       this.completedTasks.set(task.id, task);
       this.runningTasks.delete(task.id);
-      
+
       console.log(chalk.red(`❌ Task ${task.id} failed: ${error.message}`));
       this.emit('task-failed', task);
     }
+  }
+
+  /**
+   * Execute a promise with abort signal support
+   */
+  private async executeWithAbort<T>(
+    promise: Promise<T>,
+    signal: AbortSignal,
+    task: AgentTask
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      // Check if already aborted
+      if (signal.aborted) {
+        reject(new Error('Task aborted'));
+        return;
+      }
+
+      // Listen for abort
+      const abortHandler = () => {
+        reject(new Error('Task aborted due to timeout'));
+      };
+      signal.addEventListener('abort', abortHandler, { once: true });
+
+      // Execute the promise
+      promise
+        .then((result) => {
+          signal.removeEventListener('abort', abortHandler);
+          resolve(result);
+        })
+        .catch((error) => {
+          signal.removeEventListener('abort', abortHandler);
+          reject(error);
+        });
+    });
+  }
+
+  /**
+   * Handle task timeout
+   */
+  private handleTaskTimeout(task: AgentTask): void {
+    console.log(chalk.yellow(`⏰ Task ${task.id} timed out after ${task.timeout || OrchestratorAgent.DEFAULT_TASK_TIMEOUT}ms`));
+
+    task.status = 'timeout';
+    task.error = new Error('Task execution timeout');
+    this.completedTasks.set(task.id, task);
+    this.runningTasks.delete(task.id);
+    this.taskAbortControllers.delete(task.id);
+
+    this.emit('task-timeout', task);
+  }
+
+  /**
+   * Cancel a running task
+   */
+  cancelTask(taskId: string): boolean {
+    const controller = this.taskAbortControllers.get(taskId);
+    if (controller) {
+      controller.abort();
+      return true;
+    }
+    return false;
   }
   
   private getNextAvailableTask(): AgentTask | null {
@@ -310,69 +418,113 @@ export class OrchestratorAgent extends EventEmitter {
     return true;
   }
   
-  private async waitForTaskCompletion(taskId: string): Promise<any> {
+  private async waitForTaskCompletion(taskId: string, timeout: number = 300000): Promise<any> {
+    const existing = this.completedTasks.get(taskId);
+    if (existing) {
+      if (existing.status === 'completed') return existing.result;
+      throw existing.error || new Error('Task failed');
+    }
+
     return new Promise((resolve, reject) => {
-      const checkInterval = setInterval(() => {
-        const task = this.completedTasks.get(taskId);
-        
-        if (task) {
-          clearInterval(checkInterval);
-          
-          if (task.status === 'completed') {
-            resolve(task.result);
-          } else {
-            reject(task.error || new Error('Task failed'));
-          }
-        }
-      }, 100);
-      
-      // Timeout after 5 minutes
-      setTimeout(() => {
-        clearInterval(checkInterval);
+      const timer = setTimeout(() => {
+        this.off('task-completed', completedHandler);
+        this.off('task-failed', failedHandler);
+        this.off('task-timeout', timeoutHandler);
         reject(new Error('Task timeout'));
-      }, 300000);
+      }, timeout);
+
+      const completedHandler = (task: AgentTask) => {
+        if (task.id === taskId) {
+          clearTimeout(timer);
+          this.off('task-completed', completedHandler);
+          this.off('task-failed', failedHandler);
+          this.off('task-timeout', timeoutHandler);
+          resolve(task.result);
+        }
+      };
+
+      const failedHandler = (task: AgentTask) => {
+        if (task.id === taskId) {
+          clearTimeout(timer);
+          this.off('task-completed', completedHandler);
+          this.off('task-failed', failedHandler);
+          this.off('task-timeout', timeoutHandler);
+          reject(task.error || new Error('Task failed'));
+        }
+      };
+
+      const timeoutHandler = (task: AgentTask) => {
+        if (task.id === taskId) {
+          clearTimeout(timer);
+          this.off('task-completed', completedHandler);
+          this.off('task-failed', failedHandler);
+          this.off('task-timeout', timeoutHandler);
+          reject(new Error('Task execution timeout'));
+        }
+      };
+
+      this.on('task-completed', completedHandler);
+      this.on('task-failed', failedHandler);
+      this.on('task-timeout', timeoutHandler);
     });
   }
   
-  private async waitForWorkflowCompletion(workflow: Workflow): Promise<any> {
+  private buildWorkflowResult(workflow: Workflow): any {
+    const results = workflow.tasks.map(task => {
+      const completed = this.completedTasks.get(task.id);
+      return {
+        id: task.id,
+        agent: task.agent,
+        status: completed?.status,
+        result: completed?.result,
+        error: completed?.error
+      };
+    });
+    return {
+      workflow: workflow.name,
+      results,
+      success: results.every(r => r.status === 'completed')
+    };
+  }
+
+  private isWorkflowDone(workflow: Workflow): boolean {
+    return workflow.tasks.every(task => {
+      const completed = this.completedTasks.get(task.id);
+      return completed && (completed.status === 'completed' || completed.status === 'failed' || completed.status === 'timeout');
+    });
+  }
+
+  private async waitForWorkflowCompletion(workflow: Workflow, timeout: number = 600000): Promise<any> {
+    // Check if already done (all tasks pre-completed)
+    if (this.isWorkflowDone(workflow)) {
+      return this.buildWorkflowResult(workflow);
+    }
+
     return new Promise((resolve) => {
-      const checkInterval = setInterval(() => {
-        const allCompleted = workflow.tasks.every(task => {
-          const completed = this.completedTasks.get(task.id);
-          return completed && (completed.status === 'completed' || completed.status === 'failed');
-        });
-        
-        if (allCompleted) {
-          clearInterval(checkInterval);
-          
-          const results = workflow.tasks.map(task => {
-            const completed = this.completedTasks.get(task.id);
-            return {
-              id: task.id,
-              agent: task.agent,
-              status: completed?.status,
-              result: completed?.result,
-              error: completed?.error
-            };
-          });
-          
-          resolve({
-            workflow: workflow.name,
-            results,
-            success: results.every(r => r.status === 'completed')
-          });
-        }
-      }, 100);
-      
-      // Timeout after 10 minutes
-      setTimeout(() => {
-        clearInterval(checkInterval);
+      const timer = setTimeout(() => {
+        this.off('task-completed', handler);
+        this.off('task-failed', handler);
+        this.off('task-timeout', handler);
         resolve({
           workflow: workflow.name,
           error: 'Workflow timeout',
           success: false
         });
-      }, 600000);
+      }, timeout);
+
+      const handler = (_task: AgentTask) => {
+        if (this.isWorkflowDone(workflow)) {
+          clearTimeout(timer);
+          this.off('task-completed', handler);
+          this.off('task-failed', handler);
+          this.off('task-timeout', handler);
+          resolve(this.buildWorkflowResult(workflow));
+        }
+      };
+
+      this.on('task-completed', handler);
+      this.on('task-failed', handler);
+      this.on('task-timeout', handler);
     });
   }
   
@@ -509,7 +661,179 @@ export class OrchestratorAgent extends EventEmitter {
       suggestion: 'Try using a specific workflow: development, deployment, or debug'
     };
   }
-  
+
+  // ==========================================================================
+  // Autonomous Mode Support
+  // ==========================================================================
+
+  /**
+   * Enable autonomous mode for intelligent, self-correcting task execution
+   */
+  async enableAutonomousMode(config?: Partial<AutonomousConfig>): Promise<void> {
+    console.log(chalk.bold.magenta('\n🤖 Enabling Autonomous Mode...'));
+
+    try {
+      this.autonomousConfig = config || {};
+      this.autonomousOrchestrator = await getAutonomousOrchestrator(this.autonomousConfig);
+
+      // Set up event forwarding
+      this.autonomousOrchestrator.onEvent((event: AutonomousEvent) => {
+        this.handleAutonomousEvent(event);
+      });
+
+      this.autonomousEnabled = true;
+      console.log(chalk.bold.green('✅ Autonomous Mode enabled'));
+      console.log(chalk.dim('   Chain-of-thought reasoning: Active'));
+      console.log(chalk.dim('   Self-correction: Active'));
+      console.log(chalk.dim('   Verification: Active'));
+    } catch (error: any) {
+      console.error(chalk.red(`Failed to enable autonomous mode: ${error.message}`));
+      throw error;
+    }
+  }
+
+  /**
+   * Disable autonomous mode
+   */
+  disableAutonomousMode(): void {
+    this.autonomousEnabled = false;
+    console.log(chalk.yellow('🔌 Autonomous Mode disabled'));
+  }
+
+  /**
+   * Check if autonomous mode is enabled
+   */
+  isAutonomousModeEnabled(): boolean {
+    return this.autonomousEnabled;
+  }
+
+  /**
+   * Execute a goal using the autonomous system
+   */
+  async executeAutonomous(
+    goal: string,
+    context?: {
+      conversationHistory?: string[];
+      relevantFiles?: string[];
+      codebaseState?: string;
+    },
+    onProgress?: (progress: number, message: string) => void
+  ): Promise<TaskResult> {
+    if (!this.autonomousEnabled || !this.autonomousOrchestrator) {
+      // Auto-enable if not enabled
+      await this.enableAutonomousMode();
+    }
+
+    console.log(chalk.bold.cyan(`\n🧠 Autonomous Execution: ${goal}`));
+
+    return await this.autonomousOrchestrator!.execute(
+      goal,
+      context,
+      undefined,
+      onProgress
+    );
+  }
+
+  /**
+   * Handle events from autonomous orchestrator
+   */
+  private handleAutonomousEvent(event: AutonomousEvent): void {
+    switch (event.type) {
+      case 'thinking_started':
+        console.log(chalk.dim(`  💭 Thinking about task...`));
+        break;
+
+      case 'thinking_step':
+        console.log(chalk.dim(`  📝 ${event.step.type}: ${event.step.content.substring(0, 100)}...`));
+        break;
+
+      case 'thinking_completed':
+        console.log(chalk.green(`  ✓ Reasoning complete (confidence: ${Math.round(event.chain.overallConfidence * 100)}%)`));
+        break;
+
+      case 'planning_started':
+        console.log(chalk.dim(`  📋 Creating execution plan...`));
+        break;
+
+      case 'planning_completed':
+        console.log(chalk.green(`  ✓ Plan created with ${event.plan.steps.length} steps`));
+        break;
+
+      case 'step_started':
+        console.log(chalk.cyan(`  ▶ Executing: ${event.step.description}`));
+        break;
+
+      case 'step_completed':
+        console.log(chalk.green(`  ✓ Step completed`));
+        break;
+
+      case 'step_failed':
+        console.log(chalk.red(`  ✗ Step failed: ${event.error.message}`));
+        break;
+
+      case 'verification_started':
+        console.log(chalk.dim(`  🔍 Verifying results...`));
+        break;
+
+      case 'verification_completed':
+        const status = event.report.result === 'passed' ? chalk.green('✓') : chalk.yellow('⚠');
+        console.log(`  ${status} Verification: ${event.report.result}`);
+        break;
+
+      case 'correction_started':
+        console.log(chalk.yellow(`  🔄 Attempting correction: ${event.strategy}`));
+        break;
+
+      case 'correction_completed':
+        if (event.attempt.successful) {
+          console.log(chalk.green(`  ✓ Correction successful`));
+        } else {
+          console.log(chalk.red(`  ✗ Correction failed`));
+        }
+        break;
+
+      case 'task_completed':
+        console.log(chalk.bold.green(`\n✅ Task completed successfully!`));
+        if (event.result.filesModified.length > 0) {
+          console.log(chalk.dim(`   Files modified: ${event.result.filesModified.join(', ')}`));
+        }
+        break;
+
+      case 'task_failed':
+        console.log(chalk.bold.red(`\n❌ Task failed: ${event.error.message}`));
+        break;
+
+      case 'approval_required':
+        console.log(chalk.bold.yellow(`\n⚠️ Approval required: ${event.operation}`));
+        console.log(chalk.dim(`   ${event.details}`));
+        break;
+    }
+
+    // Forward to orchestrator event listeners
+    this.emit('autonomous-event', event);
+  }
+
+  /**
+   * Get autonomous orchestrator status
+   */
+  getAutonomousStatus(): any {
+    if (!this.autonomousOrchestrator) {
+      return { enabled: false };
+    }
+
+    return {
+      enabled: this.autonomousEnabled,
+      activeTasks: this.autonomousOrchestrator.getActiveTasks().length,
+      recentTasks: this.autonomousOrchestrator.getTaskHistory(5).map(t => ({
+        id: t.id,
+        goal: t.goal,
+        status: t.status,
+        success: t.result?.success
+      })),
+      config: this.autonomousOrchestrator.getConfig()
+    };
+  }
+
   // Status and monitoring
   getStatus(): any {
     return {
@@ -536,15 +860,22 @@ export class OrchestratorAgent extends EventEmitter {
   
   async shutdown(): Promise<void> {
     console.log(chalk.yellow('\n🛑 Orchestrator shutting down...'));
-    
+
     this.isRunning = false;
-    
+
+    // Cancel all running tasks
+    for (const [taskId, controller] of this.taskAbortControllers) {
+      console.log(chalk.dim(`  Cancelling task ${taskId}...`));
+      controller.abort();
+    }
+    this.taskAbortControllers.clear();
+
     // Shutdown all agents
     for (const [name, agent] of this.agents) {
       console.log(chalk.dim(`  Shutting down ${name}...`));
       await agent.deactivate();
     }
-    
+
     console.log(chalk.green('✅ Orchestrator shutdown complete'));
   }
   
@@ -578,4 +909,28 @@ export async function executeAgentTask(agentName: string, task: any): Promise<an
 export async function coordinateGoal(goal: string): Promise<any> {
   const orchestrator = await getOrchestrator();
   return await orchestrator.coordinateAgents(goal);
+}
+
+// Autonomous mode helper functions
+export async function enableAutonomousMode(config?: Partial<AutonomousConfig>): Promise<void> {
+  const orchestrator = await getOrchestrator();
+  await orchestrator.enableAutonomousMode(config);
+}
+
+export async function executeAutonomousGoal(
+  goal: string,
+  context?: {
+    conversationHistory?: string[];
+    relevantFiles?: string[];
+    codebaseState?: string;
+  },
+  onProgress?: (progress: number, message: string) => void
+): Promise<TaskResult> {
+  const orchestrator = await getOrchestrator();
+  return await orchestrator.executeAutonomous(goal, context, onProgress);
+}
+
+export async function getAutonomousStatus(): Promise<any> {
+  const orchestrator = await getOrchestrator();
+  return orchestrator.getAutonomousStatus();
 }

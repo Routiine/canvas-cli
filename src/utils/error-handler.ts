@@ -25,6 +25,9 @@ export class ErrorHandler extends EventEmitter {
   private errorLog: ErrorContext[] = [];
   private maxLogSize: number = 1000;
   private errorCounts: Map<string, number> = new Map();
+  private cleanupHandlers: Array<{ name: string; handler: () => Promise<void> | void }> = [];
+  private isShuttingDown: boolean = false;
+  private static handlersSetup: boolean = false;
   
   // Default retry configuration
   private defaultRetryOptions: Required<RetryOptions> = {
@@ -63,6 +66,9 @@ export class ErrorHandler extends EventEmitter {
    * Setup global error handlers
    */
   private setupGlobalHandlers(): void {
+    if (ErrorHandler.handlersSetup) return;
+    ErrorHandler.handlersSetup = true;
+
     // Handle uncaught exceptions
     process.on('uncaughtException', (error) => {
       this.handleCriticalError('uncaughtException', error);
@@ -119,15 +125,29 @@ export class ErrorHandler extends EventEmitter {
         opts.onRetry(attempt, error);
         this.emit('retry', { attempt, error, operation });
 
-        // Wait before retrying
-        await this.delay(delay);
-        
+        // Wait before retrying with jitter to prevent thundering herd
+        const jitter = Math.random() * 0.3 * delay; // ±15% jitter
+        await this.delay(delay + jitter - delay * 0.15);
+
         // Calculate next delay with exponential backoff
         delay = Math.min(delay * opts.backoffFactor, opts.maxDelay);
       }
     }
 
     throw lastError || new Error('Retry failed');
+  }
+
+  /**
+   * Create a retryable version of an async function
+   */
+  createRetryable<T extends (...args: any[]) => Promise<any>>(
+    fn: T,
+    operation: string,
+    options?: RetryOptions
+  ): T {
+    return (async (...args: Parameters<T>) => {
+      return this.withRetry(() => fn(...args), operation, options);
+    }) as T;
   }
 
   /**
@@ -193,18 +213,54 @@ export class ErrorHandler extends EventEmitter {
   /**
    * Handle graceful shutdown
    */
-  private handleGracefulShutdown(signal: string): void {
+  private async handleGracefulShutdown(signal: string): Promise<void> {
+    if (this.isShuttingDown) return;
+    this.isShuttingDown = true;
+
     console.log(`\n👋 Received ${signal}, shutting down gracefully...`);
-    
+
     this.emit('shutdown', signal);
-    
+
+    // Run all cleanup handlers with timeout
+    const timeout = 5000; // 5 second timeout for cleanup
+    const cleanupPromises = this.cleanupHandlers.map(async ({ name, handler }) => {
+      try {
+        const result = handler();
+        if (result instanceof Promise) {
+          await Promise.race([
+            result,
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Cleanup timeout')), timeout)
+            )
+          ]);
+        }
+        console.log(`  ✓ ${name} cleaned up`);
+      } catch (error: any) {
+        console.log(`  ✗ ${name} cleanup failed: ${error.message}`);
+      }
+    });
+
+    await Promise.allSettled(cleanupPromises);
+
     // Save error log
     this.saveErrorLog();
-    
-    // Give time for cleanup
-    setTimeout(() => {
-      process.exit(0);
-    }, 1000);
+
+    console.log('👋 Goodbye!');
+    process.exit(0);
+  }
+
+  /**
+   * Register a cleanup handler to run on shutdown
+   */
+  registerCleanup(name: string, handler: () => Promise<void> | void): void {
+    this.cleanupHandlers.push({ name, handler });
+  }
+
+  /**
+   * Unregister a cleanup handler
+   */
+  unregisterCleanup(name: string): void {
+    this.cleanupHandlers = this.cleanupHandlers.filter(h => h.name !== name);
   }
 
   /**
@@ -457,6 +513,53 @@ export const RecoveryStrategies = {
     return delay;
   }
 };
+
+/**
+ * Decorator for adding retry logic to class methods
+ */
+export function withRetryDecorator(operation: string, options?: RetryOptions) {
+  return function (
+    target: any,
+    propertyKey: string,
+    descriptor: PropertyDescriptor
+  ) {
+    const originalMethod = descriptor.value;
+
+    descriptor.value = async function (...args: any[]) {
+      return errorHandler.withRetry(
+        () => originalMethod.apply(this, args),
+        `${operation}:${propertyKey}`,
+        options
+      );
+    };
+
+    return descriptor;
+  };
+}
+
+/**
+ * Decorator for wrapping methods with error handling
+ */
+export function handleErrors(operation: string) {
+  return function (
+    target: any,
+    propertyKey: string,
+    descriptor: PropertyDescriptor
+  ) {
+    const originalMethod = descriptor.value;
+
+    descriptor.value = async function (...args: any[]) {
+      try {
+        return await originalMethod.apply(this, args);
+      } catch (error: any) {
+        errorHandler.handleError(`${operation}:${propertyKey}`, error);
+        throw error;
+      }
+    };
+
+    return descriptor;
+  };
+}
 
 // Export singleton instance
 export const errorHandler = ErrorHandler.getInstance();

@@ -309,11 +309,12 @@ class PersistentWorkspaceState extends EventEmitter {
     }
 
     // Deep merge updates
-    this.currentWorkspace = this.deepMerge(this.currentWorkspace, updates);
-    this.currentWorkspace.metadata.updated = Date.now();
-    
+    const merged = this.deepMerge(this.currentWorkspace, updates) as WorkspaceState;
+    merged.metadata.updated = Date.now();
+    this.currentWorkspace = merged;
+
     this.isDirty = true;
-    this.emit('state:updated', { workspace: this.currentWorkspace.id, updates });
+    this.emit('state:updated', { workspace: merged.id, updates });
   }
 
   /**

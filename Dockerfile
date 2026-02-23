@@ -1,66 +1,58 @@
-# Canvas CLI Docker Image
-# Multi-stage build for optimal size and security
-
-# Build stage
-FROM node:20-alpine AS builder
+# Stage 1: Build
+FROM node:20.18.2-alpine3.21 AS builder
 
 WORKDIR /app
+
+# Install build dependencies for native modules
+RUN apk add --no-cache python3 make g++ git
 
 # Copy package files
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Install dependencies
-RUN npm ci --only=production && \
-    npm install -g typescript
+# Install ALL dependencies (including devDependencies for TypeScript)
+RUN npm ci
 
-# Copy source code
-COPY src ./src
-COPY docs ./docs
+# Copy source
+COPY src/ ./src/
 
-# Build application
+# Build TypeScript
 RUN npm run build
 
-# Runtime stage
-FROM node:20-alpine
-
-# Install system dependencies
-RUN apk add --no-cache \
-    git \
-    curl \
-    bash \
-    python3 \
-    py3-pip \
-    build-base
-
-# Create non-root user
-RUN addgroup -g 1001 -S canvas && \
-    adduser -u 1001 -S canvas -G canvas
+# Stage 2: Runtime
+FROM node:20.18.2-alpine3.21
 
 WORKDIR /app
 
-# Copy built application from builder
-COPY --from=builder --chown=canvas:canvas /app/dist ./dist
-COPY --from=builder --chown=canvas:canvas /app/node_modules ./node_modules
-COPY --from=builder --chown=canvas:canvas /app/package.json ./
-COPY --from=builder --chown=canvas:canvas /app/docs ./docs
+# Install runtime dependencies for native modules
+RUN apk add --no-cache python3 make g++ git
 
-# Create config directory
-RUN mkdir -p /home/canvas/.canvas-cli && \
-    chown -R canvas:canvas /home/canvas/.canvas-cli
+# Create non-root user
+RUN addgroup -g 1001 -S canvas && adduser -u 1001 -S canvas -G canvas
 
-# Switch to non-root user
+# Copy package files
+COPY package*.json ./
+
+# Install production dependencies only
+RUN npm ci --omit=dev
+
+# Copy built output from builder
+COPY --from=builder /app/dist ./dist
+
+# Copy other needed files (allow missing directories)
+RUN mkdir -p recipes docs
+COPY --from=builder /app/src/. ./src/. 2>/dev/null || true
+
+# Set ownership
+RUN chown -R canvas:canvas /app
+
 USER canvas
 
-# Set environment variables
-ENV NODE_ENV=production \
-    CANVAS_HOME=/home/canvas/.canvas-cli \
-    PATH="/app/dist:${PATH}"
+# Expose dashboard port
+EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node dist/index.js --version || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD node dist/index.js --version > /dev/null 2>&1 || exit 1
 
-# Default command
-ENTRYPOINT ["node", "dist/index.js"]
-CMD ["--help"]
+CMD ["node", "dist/index.js"]

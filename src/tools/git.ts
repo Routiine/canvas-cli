@@ -93,12 +93,22 @@ export class GitAddTool extends BaseTool {
   requiresConfirmation = true;
 
   async execute(params: { files: string[] }): Promise<string> {
+    if (!params.files || !Array.isArray(params.files) || params.files.length === 0) {
+      throw new Error('At least one file must be specified');
+    }
+
+    // Filter out any undefined/null/empty values
+    const validFiles = params.files.filter(f => f && typeof f === 'string' && f.trim());
+    if (validFiles.length === 0) {
+      throw new Error('No valid files specified');
+    }
+
     const git = simpleGit();
-    
+
     try {
-      await git.add(params.files);
-      console.log(chalk.green(`✓ Staged ${params.files.length} file(s)`));
-      return `Successfully staged: ${params.files.join(', ')}`;
+      await git.add(validFiles);
+      console.log(chalk.green(`✓ Staged ${validFiles.length} file(s)`));
+      return `Successfully staged: ${validFiles.join(', ')}`;
     } catch (error) {
       console.error(chalk.red('Git add failed:'), error);
       throw error;
@@ -117,11 +127,15 @@ export class GitCommitTool extends BaseTool {
   requiresConfirmation = true;
 
   async execute(params: { message: string; amend?: boolean }): Promise<any> {
+    if (!params.message || typeof params.message !== 'string' || !params.message.trim()) {
+      throw new Error('Commit message is required');
+    }
+
     const git = simpleGit();
-    
+
     try {
       let result;
-      
+
       if (params.amend) {
         result = await git.commit(params.message, undefined, { '--amend': null });
       } else {

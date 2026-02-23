@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { UnifiedBorder } from './unifiedBorder.js';
 
 const execAsync = promisify(exec);
 
@@ -274,7 +275,6 @@ export class EnhancedErrorHandler {
     
     let output = '';
     // Use UnifiedBorder for consistent error display
-    const { UnifiedBorder } = await import('./unifiedBorder.js');
     output += '\n' + UnifiedBorder.drawError(error?.message || error);
     
     if (showSuggestions) {

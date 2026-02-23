@@ -49,17 +49,28 @@ export class WebCrawlerTool extends BaseTool {
   }
 
   async execute(options: CrawlOptions): Promise<any> {
+    // Validate URL
+    if (!options.url || typeof options.url !== 'string') {
+      throw new Error('URL is required');
+    }
+
+    try {
+      new URL(options.url);
+    } catch {
+      throw new Error(`Invalid URL: ${options.url}`);
+    }
+
     console.log(chalk.cyan('🕷️  Starting web crawler...'));
-    
+
     // Reset for new crawl
     this.visitedUrls.clear();
     this.crawledPages = [];
     this.pageCount = 0;
 
-    // Set defaults
+    // Set defaults with bounds checking
     const config = {
-      maxDepth: options.maxDepth || 3,
-      maxPages: options.maxPages || 50,
+      maxDepth: Math.min(Math.max(options.maxDepth || 3, 1), 10), // 1-10
+      maxPages: Math.min(Math.max(options.maxPages || 50, 1), 500), // 1-500
       extractCode: options.extractCode !== false,
       extractLinks: options.extractLinks !== false,
       saveToFile: options.saveToFile !== false,

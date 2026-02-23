@@ -16,7 +16,12 @@ export const MemoryEntrySchema = z.object({
   id: z.string(),
   agentId: z.string(),
   timestamp: z.string(),
-  type: z.enum(['conversation', 'decision', 'learning', 'context', 'preference', 'error']),
+  type: z.enum([
+    'conversation', 'decision', 'learning', 'context', 'preference', 'error',
+    'communication', 'consultation', 'task_execution', 'execution_plan',
+    'replication', 'notification', 'request', 'query', 'response',
+    'broadcast', 'coordination', 'system', 'user', 'assistant'
+  ]),
   category: z.string().optional(),
   content: z.any(),
   embedding: z.array(z.number()).optional(),
@@ -382,32 +387,59 @@ export class AgentMemory extends EventEmitter {
    * Get memory statistics
    */
   getStatistics(): MemoryStore['statistics'] {
-    const stats = {
+    const stats: MemoryStore['statistics'] = {
       totalEntries: this.store.entries.length,
       totalSessions: new Set(this.store.entries.map(e => e.metadata.sessionId)).size,
       averageRelevance: 0,
-      mostAccessedEntries: []
+      mostAccessedEntries: [] as string[]
     };
-    
+
     // Calculate average relevance
     const relevanceScores = this.store.entries
       .map(e => e.metadata.relevanceScore || 0)
       .filter(s => s > 0);
-    
+
     if (relevanceScores.length > 0) {
       stats.averageRelevance = relevanceScores.reduce((a, b) => a + b, 0) / relevanceScores.length;
     }
-    
+
     // Find most accessed entries
     const sorted = [...this.store.entries]
       .sort((a, b) => (b.metadata.accessCount || 0) - (a.metadata.accessCount || 0))
       .slice(0, 10);
-    
+
     stats.mostAccessedEntries = sorted.map(e => e.id);
-    
+
     return stats;
   }
-  
+
+  /**
+   * Get recent memories (alias for recall with recent entries)
+   */
+  async getRecentMemories(type?: string, limit: number = 10): Promise<MemoryEntry[]> {
+    let results = [...this.store.entries];
+
+    if (type) {
+      results = results.filter(e => e.type === type);
+    }
+
+    // Sort by timestamp descending (most recent first)
+    results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return results.slice(0, limit);
+  }
+
+  /**
+   * Add a memory (alias for remember)
+   */
+  async addMemory(
+    type: string,
+    content: any,
+    metadata?: Partial<MemoryEntry['metadata']>
+  ): Promise<string> {
+    return this.remember(content, type as MemoryEntry['type'], metadata);
+  }
+
   /**
    * Private helper methods
    */
@@ -531,7 +563,7 @@ export class AgentMemory extends EventEmitter {
       .map(s => s.entry);
   }
   
-  private structuredSearch(query: any, limit: number): Promise<MemoryEntry[]> {
+  private structuredSearch(query: any, limit: number): MemoryEntry[] {
     let results = [...this.store.entries];
     
     if (query.type) {
@@ -556,9 +588,9 @@ export class AgentMemory extends EventEmitter {
       return scoreB - scoreA;
     });
     
-    return Promise.resolve(results.slice(0, limit));
+    return results.slice(0, limit);
   }
-  
+
   private async generateEmbedding(text: string): Promise<number[]> {
     // Simplified embedding generation
     // In production, use a real embedding model

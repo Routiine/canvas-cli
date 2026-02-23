@@ -49,15 +49,19 @@ class APIKeyManager {
         
         // Decrypt if encryption is enabled
         if (this.encryptionKey && configData.encrypted) {
-          const decrypted = this.decrypt(configData.data);
-          const parsedKeys = JSON.parse(decrypted);
-          
-          // Only use config keys if not already set from environment
-          Object.keys(parsedKeys).forEach(key => {
-            if (!this.keys[key]) {
-              this.keys[key] = parsedKeys[key];
-            }
-          });
+          try {
+            const decrypted = this.decrypt(configData.data);
+            const parsedKeys = JSON.parse(decrypted);
+            
+            // Only use config keys if not already set from environment
+            Object.keys(parsedKeys).forEach(key => {
+              if (!this.keys[key]) {
+                this.keys[key] = parsedKeys[key];
+              }
+            });
+          } catch {
+            // Malformed or legacy encrypted data - skip silently
+          }
         } else if (!configData.encrypted) {
           // Plain text config (not recommended)
           Object.keys(configData).forEach(key => {
@@ -158,37 +162,48 @@ class APIKeyManager {
   }
 
   /**
-   * Simple encryption for API keys
+   * Secure encryption for API keys with random salt and IV
    */
   private encrypt(text: string): string {
     if (!this.encryptionKey) return text;
-    
+
     const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
+    // Generate unique random salt for each encryption (16 bytes)
+    const salt = crypto.randomBytes(16);
+    const key = crypto.scryptSync(this.encryptionKey, salt, 32);
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv(algorithm, key, iv);
-    
+
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    
-    return iv.toString('hex') + ':' + encrypted;
+
+    // Format: salt:iv:encrypted (all in hex)
+    return salt.toString('hex') + ':' + iv.toString('hex') + ':' + encrypted;
   }
 
   /**
-   * Simple decryption for API keys
+   * Secure decryption for API keys
    */
   private decrypt(encryptedText: string): string {
     if (!this.encryptionKey) return encryptedText;
-    
+
     const algorithm = 'aes-256-cbc';
-    const key = crypto.scryptSync(this.encryptionKey, 'salt', 32);
-    const [ivHex, encrypted] = encryptedText.split(':');
+    const parts = encryptedText.split(':');
+
+    if (parts.length !== 3) {
+      throw new Error('Invalid encrypted key format - legacy format no longer supported');
+    }
+
+    // Format: salt:iv:encrypted
+    const [saltHex, ivHex, encrypted] = parts;
+    const salt = Buffer.from(saltHex, 'hex');
+    const key = crypto.scryptSync(this.encryptionKey, salt, 32);
     const iv = Buffer.from(ivHex, 'hex');
     const decipher = crypto.createDecipheriv(algorithm, key, iv);
-    
+
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
-    
+
     return decrypted;
   }
 

@@ -176,8 +176,7 @@ export class CommunicationMixin extends EventEmitter implements CommunicationCap
 
     // Store in memory
     await this.memory.remember(message, 'communication', {
-      from: message.from,
-      priority: message.priority
+      tags: [`from:${message.from}`, `priority:${message.priority || 'normal'}`]
     });
 
     // Route to appropriate handler

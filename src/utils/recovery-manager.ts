@@ -160,9 +160,17 @@ export class RecoveryManager extends EventEmitter {
   }
 
   /**
-   * Initiate recovery process
+   * Initiate recovery process (with recursion protection)
    */
-  async initiateRecovery(reason: string, metadata: any = {}): Promise<boolean> {
+  async initiateRecovery(reason: string, metadata: any = {}, _recursionDepth: number = 0): Promise<boolean> {
+    // Prevent infinite recursion - max 3 nested recovery attempts
+    const MAX_RECURSION_DEPTH = 3;
+    if (_recursionDepth >= MAX_RECURSION_DEPTH) {
+      console.error(`Recovery recursion limit (${MAX_RECURSION_DEPTH}) exceeded - stopping retry`);
+      this.emit('recovery-failed', { reason, attempts: this.recoveryAttempts, error: 'recursion_limit' });
+      return false;
+    }
+
     if (this.isRecovering) {
       console.warn('Recovery already in progress');
       return false;
@@ -176,20 +184,20 @@ export class RecoveryManager extends EventEmitter {
 
     this.isRecovering = true;
     this.recoveryAttempts++;
-    
+
     console.log(`🔄 Initiating recovery (attempt ${this.recoveryAttempts}): ${reason}`);
     this.emit('recovery-started', { reason, attempt: this.recoveryAttempts });
 
     try {
       // Step 1: Save current state
       await this.saveState(reason, metadata);
-      
+
       // Step 2: Wait before recovery
       await this.delay(this.options.recoveryDelay);
-      
+
       // Step 3: Perform recovery actions
       const recovered = await this.performRecovery(reason);
-      
+
       if (recovered) {
         console.log('✅ Recovery successful');
         this.emit('recovery-success', { reason, attempt: this.recoveryAttempts });
@@ -198,15 +206,16 @@ export class RecoveryManager extends EventEmitter {
       } else {
         throw new Error('Recovery failed');
       }
-      
+
     } catch (error: any) {
       console.error('Recovery failed:', error.message);
       this.emit('recovery-error', { reason, error, attempt: this.recoveryAttempts });
-      
-      // Retry recovery after delay
+
+      // Retry recovery after delay with increased recursion depth
       await this.delay(this.options.recoveryDelay * this.recoveryAttempts);
-      return this.initiateRecovery(reason, metadata);
-      
+      this.isRecovering = false; // Reset before retry
+      return this.initiateRecovery(reason, metadata, _recursionDepth + 1);
+
     } finally {
       this.isRecovering = false;
     }

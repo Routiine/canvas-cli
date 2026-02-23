@@ -17,11 +17,21 @@ export class MemoryTool extends BaseTool {
   private memoryPath = path.join(os.homedir(), '.canvas-cli', 'memory');
 
   async execute(params: { key: string; value: any; scope?: string }): Promise<void> {
+    if (!params.key || typeof params.key !== 'string' || !params.key.trim()) {
+      throw new Error('Memory key is required');
+    }
+
+    // Sanitize key to prevent directory traversal
+    const sanitizedKey = params.key.replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (sanitizedKey !== params.key) {
+      console.log(chalk.dim(`  Key sanitized: ${params.key} → ${sanitizedKey}`));
+    }
+
     const scope = params.scope || 'session';
     const scopePath = path.join(this.memoryPath, scope);
     await fs.ensureDir(scopePath);
-    
-    const filePath = path.join(scopePath, `${params.key}.json`);
+
+    const filePath = path.join(scopePath, `${sanitizedKey}.json`);
     await fs.writeJSON(filePath, {
       key: params.key,
       value: params.value,
@@ -44,10 +54,16 @@ export class RecallMemoryTool extends BaseTool {
   private memoryPath = path.join(os.homedir(), '.canvas-cli', 'memory');
 
   async execute(params: { key: string; scope?: string }): Promise<any> {
+    if (!params.key || typeof params.key !== 'string' || !params.key.trim()) {
+      throw new Error('Memory key is required');
+    }
+
+    // Sanitize key to prevent directory traversal
+    const sanitizedKey = params.key.replace(/[^a-zA-Z0-9_-]/g, '_');
     const scopes = params.scope ? [params.scope] : ['session', 'project', 'global'];
-    
+
     for (const scope of scopes) {
-      const filePath = path.join(this.memoryPath, scope, `${params.key}.json`);
+      const filePath = path.join(this.memoryPath, scope, `${sanitizedKey}.json`);
       if (await fs.pathExists(filePath)) {
         const data = await fs.readJSON(filePath);
         console.log(chalk.green(`✓ Recalled from ${scope} memory: ${params.key}`));

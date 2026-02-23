@@ -466,7 +466,7 @@ export class EnhancedRecoveryManager extends EventEmitter {
       context: await this.captureContext(),
       toolState: await this.captureToolState(),
       sessionFlags: await this.captureSessionFlags(),
-      metrics: performanceMonitor.getMetrics(),
+      metrics: performanceMonitor.getCurrentMetrics(),
       files: await this.captureFileSnapshots(),
       environment: await this.captureEnvironment(),
       memory: this.captureMemorySnapshot()
@@ -695,30 +695,189 @@ export class EnhancedRecoveryManager extends EventEmitter {
   }
   
   private async captureContext(): Promise<any> {
-    // Implement context capture logic
-    return {};
+    // Capture application context state
+    const context: any = {
+      timestamp: new Date().toISOString(),
+      processId: process.pid,
+      uptime: process.uptime(),
+      argv: process.argv.slice(2),
+      cwd: process.cwd()
+    };
+
+    // Capture canvas-cli specific context if available
+    try {
+      const configPath = path.join(process.cwd(), '.canvas-cli', 'context.json');
+      if (await fs.pathExists(configPath)) {
+        context.savedContext = await fs.readJson(configPath);
+      }
+    } catch (error) {
+      // Context file may not exist
+    }
+
+    // Emit event to allow components to add their context
+    this.emit('capture:context', context);
+
+    return context;
   }
-  
+
   private async captureToolState(): Promise<any> {
-    // Implement tool state capture logic
-    return {};
+    // Capture tool registry and executor state
+    const toolState: any = {
+      timestamp: new Date().toISOString(),
+      registeredTools: [],
+      executionHistory: [],
+      pendingOperations: []
+    };
+
+    // Capture from tool state file if it exists
+    try {
+      const toolStatePath = path.join(process.cwd(), '.canvas-cli', 'tool-state.json');
+      if (await fs.pathExists(toolStatePath)) {
+        const savedState = await fs.readJson(toolStatePath);
+        Object.assign(toolState, savedState);
+      }
+    } catch (error) {
+      // Tool state file may not exist
+    }
+
+    // Emit event to allow tool registry to add its state
+    this.emit('capture:toolState', toolState);
+
+    return toolState;
   }
-  
+
   private async captureSessionFlags(): Promise<any> {
-    // Implement session flags capture logic
-    return {};
+    // Capture session-related flags and settings
+    const sessionFlags: any = {
+      timestamp: new Date().toISOString(),
+      autoConfirm: false,
+      verboseMode: false,
+      dryRunMode: false,
+      debugMode: process.env.DEBUG === 'true',
+      colorEnabled: true,
+      interactiveMode: process.stdout.isTTY || false,
+      confirmedOperations: [],
+      deniedOperations: []
+    };
+
+    // Capture from session file if it exists
+    try {
+      const sessionPath = path.join(process.cwd(), '.canvas-cli', 'session.json');
+      if (await fs.pathExists(sessionPath)) {
+        const savedSession = await fs.readJson(sessionPath);
+        Object.assign(sessionFlags, savedSession);
+      }
+    } catch (error) {
+      // Session file may not exist
+    }
+
+    // Emit event to allow session manager to add its state
+    this.emit('capture:sessionFlags', sessionFlags);
+
+    return sessionFlags;
   }
-  
+
   private async restoreToolState(state: any): Promise<void> {
-    // Implement tool state restoration logic
+    // Restore tool state
+    try {
+      if (state) {
+        const toolStatePath = path.join(process.cwd(), '.canvas-cli', 'tool-state.json');
+        await fs.ensureDir(path.dirname(toolStatePath));
+        await fs.writeJson(toolStatePath, state, { spaces: 2 });
+
+        // Emit event to notify tool registry to reload
+        this.emit('restore:toolState', state);
+      }
+    } catch (error) {
+      console.error('Failed to restore tool state:', error);
+      throw error;
+    }
   }
-  
+
   private async restoreSession(flags: any): Promise<void> {
-    // Implement session restoration logic
+    // Restore session flags
+    try {
+      if (flags) {
+        const sessionPath = path.join(process.cwd(), '.canvas-cli', 'session.json');
+        await fs.ensureDir(path.dirname(sessionPath));
+        await fs.writeJson(sessionPath, flags, { spaces: 2 });
+
+        // Apply certain flags directly
+        if (flags.debugMode !== undefined) {
+          process.env.DEBUG = flags.debugMode ? 'true' : '';
+        }
+
+        // Emit event to notify session manager to reload
+        this.emit('restore:sessionFlags', flags);
+      }
+    } catch (error) {
+      console.error('Failed to restore session:', error);
+      throw error;
+    }
   }
-  
+
   private async clearCaches(): Promise<void> {
-    // Implement cache clearing logic
+    // Clear various caches
+    try {
+      const cachePaths = [
+        path.join(process.cwd(), '.canvas-cli', 'cache'),
+        path.join(process.cwd(), 'node_modules', '.cache'),
+        path.join(process.cwd(), '.cache')
+      ];
+
+      for (const cachePath of cachePaths) {
+        if (await fs.pathExists(cachePath)) {
+          await fs.emptyDir(cachePath);
+          console.log(`Cleared cache: ${cachePath}`);
+        }
+      }
+
+      // Clear module cache for canvas-cli modules
+      for (const key of Object.keys(require.cache)) {
+        if (key.includes('canvas-cli') && !key.includes('node_modules')) {
+          delete require.cache[key];
+        }
+      }
+
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+      }
+
+      // Emit event for custom cache clearing
+      this.emit('cache:cleared');
+
+    } catch (error) {
+      console.error('Failed to clear caches:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Register a state capture handler for a component
+   */
+  registerStateCaptureHandler(component: string, handler: () => Promise<any>): void {
+    this.on(`capture:${component}`, async (state) => {
+      try {
+        const componentState = await handler();
+        Object.assign(state, { [component]: componentState });
+      } catch (error) {
+        console.error(`Failed to capture state for ${component}:`, error);
+      }
+    });
+  }
+
+  /**
+   * Register a state restore handler for a component
+   */
+  registerStateRestoreHandler(component: string, handler: (state: any) => Promise<void>): void {
+    this.on(`restore:${component}`, async (state) => {
+      try {
+        await handler(state);
+      } catch (error) {
+        console.error(`Failed to restore state for ${component}:`, error);
+      }
+    });
   }
   
   private async createMinimalRecoveryState(): Promise<boolean> {

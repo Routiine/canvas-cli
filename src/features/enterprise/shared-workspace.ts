@@ -5,6 +5,7 @@
 
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
+import * as crypto from 'crypto';
 import { User } from './multi-user-system.js';
 import { rbacSystem } from './rbac-system.js';
 

@@ -1,174 +1,85 @@
+/**
+ * Canvas CLI Theme System - Muted Tone Color Schemes
+ * Four distinctive palettes: Sage, Mauve, Slate, Bronze
+ * Subtle, professional colors with excellent readability
+ */
+
 import chalk from 'chalk';
 import { Theme } from './types.js';
 
 export const themes: Record<string, Theme> = {
+  // Dusty Sage - muted green-gray, calming and natural
+  sage: {
+    name: 'Sage',
+    colors: {
+      primary: '#8a9a7c',      // Dusty sage green
+      secondary: '#6b7a60',
+      success: '#92a882',
+      error: '#b87c7c',
+      warning: '#c4a86c',
+      info: '#7c9aa0',
+      text: '#e2e5de',
+      dim: '#5c6358'
+    }
+  },
+
+  // Soft Mauve - dusty rose-purple, subtle and refined
+  mauve: {
+    name: 'Mauve',
+    colors: {
+      primary: '#a88a9a',      // Dusty mauve/rose
+      secondary: '#8a6c7c',
+      success: '#8aa882',
+      error: '#b88080',
+      warning: '#c4a878',
+      info: '#8a9ab0',
+      text: '#e8e2e5',
+      dim: '#685c62'
+    }
+  },
+
+  // Slate Blue - cool gray-blue, professional and calm (DEFAULT)
+  slate: {
+    name: 'Slate',
+    colors: {
+      primary: '#7a8a9c',      // Cool slate blue
+      secondary: '#5c6a7c',
+      success: '#7c9a88',
+      error: '#a88080',
+      warning: '#b8a878',
+      info: '#88a0b8',
+      text: '#e0e4e8',
+      dim: '#586068'
+    }
+  },
+
+  // Warm Bronze - desaturated copper, earthy and grounded
+  bronze: {
+    name: 'Bronze',
+    colors: {
+      primary: '#a08a78',      // Warm bronze/copper
+      secondary: '#7c6a5c',
+      success: '#8a9c7c',
+      error: '#b08078',
+      warning: '#c0a070',
+      info: '#8898a8',
+      text: '#e8e4e0',
+      dim: '#68605a'
+    }
+  },
+
+  // Default alias points to slate
   default: {
     name: 'Default',
     colors: {
-      primary: '#3b82f6',
-      secondary: '#8b5cf6',
-      success: '#10b981',
-      error: '#ef4444',
-      warning: '#f59e0b',
-      info: '#06b6d4',
-      text: '#f3f4f6',
-      dim: '#6b7280'
-    }
-  },
-  dracula: {
-    name: 'Dracula',
-    colors: {
-      primary: '#bd93f9',
-      secondary: '#ff79c6',
-      success: '#50fa7b',
-      error: '#ff5555',
-      warning: '#f1fa8c',
-      info: '#8be9fd',
-      text: '#f8f8f2',
-      dim: '#6272a4'
-    }
-  },
-  monokai: {
-    name: 'Monokai',
-    colors: {
-      primary: '#66d9ef',
-      secondary: '#ae81ff',
-      success: '#a6e22e',
-      error: '#f92672',
-      warning: '#fd971f',
-      info: '#66d9ef',
-      text: '#f8f8f2',
-      dim: '#75715e'
-    }
-  },
-  github: {
-    name: 'GitHub',
-    colors: {
-      primary: '#0969da',
-      secondary: '#8250df',
-      success: '#1a7f37',
-      error: '#cf222e',
-      warning: '#9a6700',
-      info: '#0969da',
-      text: '#1f2328',
-      dim: '#656d76'
-    }
-  },
-  nord: {
-    name: 'Nord',
-    colors: {
-      primary: '#88c0d0',
-      secondary: '#b48ead',
-      success: '#a3be8c',
-      error: '#bf616a',
-      warning: '#ebcb8b',
-      info: '#5e81ac',
-      text: '#eceff4',
-      dim: '#4c566a'
-    }
-  },
-  dark: {
-    name: 'Dark',
-    colors: {
-      primary: '#60a5fa',
-      secondary: '#a78bfa',
-      success: '#34d399',
-      error: '#f87171',
-      warning: '#fbbf24',
-      info: '#38bdf8',
-      text: '#e5e7eb',
-      dim: '#6b7280'
-    }
-  },
-  light: {
-    name: 'Light',
-    colors: {
-      primary: '#2563eb',
-      secondary: '#7c3aed',
-      success: '#059669',
-      error: '#dc2626',
-      warning: '#d97706',
-      info: '#0284c7',
-      text: '#111827',
-      dim: '#9ca3af'
-    }
-  },
-  ocean: {
-    name: 'Ocean',
-    colors: {
-      primary: '#06b6d4',
-      secondary: '#0891b2',
-      success: '#10b981',
-      error: '#ef4444',
-      warning: '#f59e0b',
-      info: '#0ea5e9',
-      text: '#e0f2fe',
-      dim: '#0e7490'
-    }
-  },
-  forest: {
-    name: 'Forest',
-    colors: {
-      primary: '#84cc16',
-      secondary: '#65a30d',
-      success: '#22c55e',
-      error: '#dc2626',
-      warning: '#facc15',
-      info: '#06b6d4',
-      text: '#ecfccb',
-      dim: '#4d7c0f'
-    }
-  },
-  sunset: {
-    name: 'Sunset',
-    colors: {
-      primary: '#fb923c',
-      secondary: '#f97316',
-      success: '#10b981',
-      error: '#ef4444',
-      warning: '#fbbf24',
-      info: '#f59e0b',
-      text: '#fff7ed',
-      dim: '#ea580c'
-    }
-  },
-  matrix: {
-    name: 'Matrix',
-    colors: {
-      primary: '#00ff00',
-      secondary: '#00cc00',
-      success: '#00ff00',
-      error: '#ff0000',
-      warning: '#ffff00',
-      info: '#00ffff',
-      text: '#00ff00',
-      dim: '#008800'
-    }
-  },
-  canvas: {
-    name: 'Canvas',
-    colors: {
-      primary: '#00ff88',
-      secondary: '#00ccff',
-      success: '#00ff88',
-      error: '#ff0066',
-      warning: '#ffcc00',
-      info: '#00bbff',
-      text: '#ffffff',
-      dim: '#668899'
-    }
-  },
-  minimal: {
-    name: 'Minimal',
-    colors: {
-      primary: '#ffffff',
-      secondary: '#cccccc',
-      success: '#00ff00',
-      error: '#ff0000',
-      warning: '#ffff00',
-      info: '#0000ff',
-      text: '#ffffff',
-      dim: '#888888'
+      primary: '#7a8a9c',
+      secondary: '#5c6a7c',
+      success: '#7c9a88',
+      error: '#a88080',
+      warning: '#b8a878',
+      info: '#88a0b8',
+      text: '#e0e4e8',
+      dim: '#586068'
     }
   }
 };
@@ -177,15 +88,15 @@ export class ThemeManager {
   private currentTheme: Theme;
 
   constructor(themeName?: string) {
-    this.currentTheme = themes[themeName || 'default'] || themes.default;
+    this.currentTheme = themes[themeName || 'slate'] || themes.slate;
   }
 
   setTheme(themeName: string): void {
     if (themes[themeName]) {
       this.currentTheme = themes[themeName];
     } else {
-      console.log(chalk.yellow(`Theme "${themeName}" not found. Using default.`));
-      this.currentTheme = themes.default;
+      console.log(chalk.hex('#b8a878')(`Theme "${themeName}" not found. Using slate.`));
+      this.currentTheme = themes.slate;
     }
   }
 
@@ -194,7 +105,7 @@ export class ThemeManager {
   }
 
   listThemes(): string[] {
-    return Object.keys(themes);
+    return Object.keys(themes).filter(t => t !== 'default');
   }
 
   // Color helper methods
@@ -232,7 +143,7 @@ export class ThemeManager {
 
   // Format helpers
   formatPrompt(text: string): string {
-    return this.primary(`❯ ${text}`);
+    return this.primary(`> ${text}`);
   }
 
   formatResponse(text: string): string {
@@ -240,7 +151,7 @@ export class ThemeManager {
   }
 
   formatTool(name: string, status: 'running' | 'success' | 'error' = 'running'): string {
-    const icon = status === 'running' ? '⚡' : status === 'success' ? '✓' : '✗';
+    const icon = status === 'running' ? '>' : status === 'success' ? '+' : 'x';
     const color = status === 'running' ? this.info : status === 'success' ? this.success : this.error;
     return color(`${icon} ${name}`);
   }

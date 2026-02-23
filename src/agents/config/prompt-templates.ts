@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import fs from 'fs/promises';
 import path from 'path';
-import * as nunjucks from 'nunjucks';
+import nunjucks from 'nunjucks';
 
 // Schema for prompt templates
 export const PromptTemplateSchema = z.object({
@@ -115,9 +115,25 @@ export class PromptTemplateSystem {
   async initialize(): Promise<void> {
     await fs.mkdir(this.templateDir, { recursive: true });
     await this.loadTemplates();
-    
+
     if (this.templates.size === 0) {
       await this.loadDefaultTemplates();
+    } else {
+      // Ensure any newly added default templates are also present
+      await this.ensureDefaultTemplates();
+    }
+  }
+
+  /**
+   * Ensure all default templates exist without overwriting existing ones
+   */
+  private async ensureDefaultTemplates(): Promise<void> {
+    const defaults = this.getDefaultTemplates();
+    for (const template of defaults) {
+      if (!this.templates.has(template.id)) {
+        await this.saveTemplate(template);
+        this.templates.set(template.id, template);
+      }
     }
   }
 
@@ -256,7 +272,7 @@ export class PromptTemplateSystem {
     }
     
     if (filter?.agentType) {
-      templates = templates.filter(t => t.agentTypes.includes(filter.agentType));
+      templates = templates.filter(t => t.agentTypes.includes(filter.agentType!));
     }
     
     return templates;
@@ -645,6 +661,362 @@ export class PromptTemplateSystem {
           updatedAt: now,
           tags: ['architecture', 'design', 'technical']
         }
+      },
+
+      // User Story Template
+      {
+        id: 'user-story',
+        name: 'User Story Template',
+        description: 'Template for generating user stories for a feature',
+        category: 'planning' as const,
+        agentTypes: ['product-manager'],
+        version: '1.0.0',
+        template: {
+          content: `Write user stories for the following feature: {{ feature }}
+
+{% if personas %}
+Consider these personas:
+{% for persona in personas %}
+- {{ persona.name }}: {{ persona.goals | join(', ') }}
+{% endfor %}
+{% endif %}
+
+Generate 3-5 user stories in the format:
+As a [role], I want [feature] so that [benefit]
+
+Include acceptance criteria for each story.`,
+          variables: [
+            { name: 'feature', type: 'string', required: true, description: 'Feature to create stories for' },
+            { name: 'personas', type: 'array', required: false, description: 'User personas', default: [] }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['feature'] }
+        },
+        metadata: {
+          author: 'Canvas CLI',
+          createdAt: now,
+          updatedAt: now,
+          tags: ['user-story', 'agile', 'product']
+        }
+      },
+
+      // Market Analysis Template
+      {
+        id: 'market-analysis',
+        name: 'Market Analysis Template',
+        description: 'Template for conducting market analysis',
+        category: 'analysis' as const,
+        agentTypes: ['product-manager'],
+        version: '1.0.0',
+        template: {
+          content: `Conduct a market analysis for {{ product }} in the {{ market }} market.
+
+{% if competitors %}
+Key competitors to analyze:
+{% for competitor in competitors %}
+- {{ competitor }}
+{% endfor %}
+{% endif %}
+
+Provide analysis covering: market size, growth rate, competitive landscape, opportunities, and threats.`,
+          variables: [
+            { name: 'product', type: 'string', required: true, description: 'Product to analyze' },
+            { name: 'market', type: 'string', required: true, description: 'Target market' },
+            { name: 'competitors', type: 'array', required: false, description: 'Competitors list', default: [] }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 100, requiredFields: ['product', 'market'] }
+        },
+        metadata: {
+          author: 'Canvas CLI',
+          createdAt: now,
+          updatedAt: now,
+          tags: ['market', 'analysis', 'competitive']
+        }
+      },
+
+      // Product Roadmap Template
+      {
+        id: 'product-roadmap',
+        name: 'Product Roadmap Template',
+        description: 'Template for creating product roadmaps',
+        category: 'planning' as const,
+        agentTypes: ['product-manager'],
+        version: '1.0.0',
+        template: {
+          content: `Create a product roadmap for {{ product }}.
+
+Timeframe: {{ timeframe }}
+
+{% if goals %}
+Strategic goals:
+{% for goal in goals %}
+- {{ goal }}
+{% endfor %}
+{% endif %}
+
+Include quarterly milestones, feature releases, and dependencies.`,
+          variables: [
+            { name: 'product', type: 'string', required: true, description: 'Product name' },
+            { name: 'timeframe', type: 'string', required: true, description: 'Roadmap timeframe' },
+            { name: 'goals', type: 'array', required: false, description: 'Strategic goals', default: [] }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['product', 'timeframe'] }
+        },
+        metadata: {
+          author: 'Canvas CLI',
+          createdAt: now,
+          updatedAt: now,
+          tags: ['roadmap', 'planning', 'product']
+        }
+      },
+
+      // Success Metrics Template
+      {
+        id: 'success-metrics',
+        name: 'Success Metrics Template',
+        description: 'Template for defining product success metrics',
+        category: 'analysis' as const,
+        agentTypes: ['product-manager'],
+        version: '1.0.0',
+        template: {
+          content: `Define success metrics for {{ product }}.
+
+{% if goals %}
+Business goals:
+{% for goal in goals %}
+- {{ goal }}
+{% endfor %}
+{% endif %}
+
+Define KPIs, OKRs, and measurement methods for tracking product success.`,
+          variables: [
+            { name: 'product', type: 'string', required: true, description: 'Product name' },
+            { name: 'goals', type: 'array', required: false, description: 'Business goals', default: [] }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['product'] }
+        },
+        metadata: {
+          author: 'Canvas CLI',
+          createdAt: now,
+          updatedAt: now,
+          tags: ['metrics', 'kpi', 'success']
+        }
+      },
+
+      // GTM Strategy Template
+      {
+        id: 'gtm-strategy',
+        name: 'Go-to-Market Strategy Template',
+        description: 'Template for creating go-to-market strategies',
+        category: 'planning' as const,
+        agentTypes: ['product-manager'],
+        version: '1.0.0',
+        template: {
+          content: `Create a go-to-market strategy for {{ product }}.
+
+Target market: {{ targetMarket }}
+
+{% if channels %}
+Marketing channels:
+{% for channel in channels %}
+- {{ channel }}
+{% endfor %}
+{% endif %}
+
+Include launch plan, pricing strategy, and marketing approach.`,
+          variables: [
+            { name: 'product', type: 'string', required: true, description: 'Product name' },
+            { name: 'targetMarket', type: 'string', required: true, description: 'Target market' },
+            { name: 'channels', type: 'array', required: false, description: 'Marketing channels', default: [] }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['product', 'targetMarket'] }
+        },
+        metadata: {
+          author: 'Canvas CLI',
+          createdAt: now,
+          updatedAt: now,
+          tags: ['gtm', 'launch', 'marketing']
+        }
+      },
+
+      // Architecture Decision Record Template
+      {
+        id: 'adr',
+        name: 'Architecture Decision Record Template',
+        description: 'Template for documenting architecture decisions',
+        category: 'planning' as const,
+        agentTypes: ['solutions-architect'],
+        version: '1.0.0',
+        template: {
+          content: `Create an Architecture Decision Record (ADR) for: {{ title }}
+
+Context: {{ context }}
+
+Options considered:
+{% for option in options %}
+- {{ option }}
+{% endfor %}
+
+Provide: decision rationale, consequences (positive/negative/neutral), and implementation notes.`,
+          variables: [
+            { name: 'title', type: 'string', required: true, description: 'ADR title' },
+            { name: 'context', type: 'string', required: true, description: 'Context and problem statement' },
+            { name: 'options', type: 'array', required: false, description: 'Options considered', default: [] }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['title', 'problem'] }
+        },
+        metadata: {
+          author: 'Canvas CLI',
+          createdAt: now,
+          updatedAt: now,
+          tags: ['adr', 'architecture', 'decision']
+        }
+      },
+
+      // Security Assessment Template
+      {
+        id: 'security-assessment',
+        name: 'Security Assessment Template',
+        description: 'Template for security assessments',
+        category: 'analysis' as const,
+        agentTypes: ['solutions-architect'],
+        version: '1.0.0',
+        template: {
+          content: `Perform a security assessment for {{ system }}.
+
+Assess: authentication, authorization, data protection, network security, and compliance requirements.`,
+          variables: [
+            { name: 'system', type: 'string', required: true, description: 'System to assess' }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['system'] }
+        },
+        metadata: { author: 'Canvas CLI', createdAt: now, updatedAt: now, tags: ['security'] }
+      },
+
+      // Performance Optimization Template
+      {
+        id: 'performance-optimization',
+        name: 'Performance Optimization Template',
+        description: 'Template for performance optimization analysis',
+        category: 'analysis' as const,
+        agentTypes: ['solutions-architect'],
+        version: '1.0.0',
+        template: {
+          content: `Create a performance optimization plan for {{ system }}.
+
+Current metrics: {{ currentMetrics }}
+Target metrics: {{ targetMetrics }}
+
+Identify bottlenecks and recommend optimizations.`,
+          variables: [
+            { name: 'system', type: 'string', required: true, description: 'System name' },
+            { name: 'currentMetrics', type: 'string', required: false, description: 'Current metrics', default: 'N/A' },
+            { name: 'targetMetrics', type: 'string', required: false, description: 'Target metrics', default: 'N/A' }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['system'] }
+        },
+        metadata: { author: 'Canvas CLI', createdAt: now, updatedAt: now, tags: ['performance'] }
+      },
+
+      // Data Architecture Template
+      {
+        id: 'data-architecture',
+        name: 'Data Architecture Template',
+        description: 'Template for data architecture design',
+        category: 'planning' as const,
+        agentTypes: ['solutions-architect'],
+        version: '1.0.0',
+        template: {
+          content: `Design a data architecture for {{ system }}.
+
+Data entities: {{ entities }}
+
+Include: data models, storage strategy, data flow, and governance.`,
+          variables: [
+            { name: 'system', type: 'string', required: true, description: 'System name' },
+            { name: 'entities', type: 'string', required: false, description: 'Main data entities', default: 'to be defined' }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['system'] }
+        },
+        metadata: { author: 'Canvas CLI', createdAt: now, updatedAt: now, tags: ['data', 'architecture'] }
+      },
+
+      // Deployment Strategy Template
+      {
+        id: 'deployment-strategy',
+        name: 'Deployment Strategy Template',
+        description: 'Template for deployment strategy planning',
+        category: 'planning' as const,
+        agentTypes: ['solutions-architect'],
+        version: '1.0.0',
+        template: {
+          content: `Create a deployment strategy for {{ application }}.
+
+Environment: {{ environment }}
+
+Include: deployment pipeline, rollback strategy, monitoring, and scaling approach.`,
+          variables: [
+            { name: 'application', type: 'string', required: true, description: 'Application name' },
+            { name: 'environment', type: 'string', required: false, description: 'Target environment', default: 'production' }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['application'] }
+        },
+        metadata: { author: 'Canvas CLI', createdAt: now, updatedAt: now, tags: ['deployment'] }
+      },
+
+      // Technology Evaluation Template
+      {
+        id: 'technology-evaluation',
+        name: 'Technology Evaluation Template',
+        description: 'Template for evaluating technology choices',
+        category: 'analysis' as const,
+        agentTypes: ['solutions-architect'],
+        version: '1.0.0',
+        template: {
+          content: `Evaluate technology options for {{ useCase }}.
+
+Candidates: {{ candidates }}
+
+Assess: performance, scalability, maintainability, cost, and team expertise.`,
+          variables: [
+            { name: 'useCase', type: 'string', required: true, description: 'Use case description' },
+            { name: 'candidates', type: 'string', required: false, description: 'Technology candidates', default: 'to be defined' }
+          ]
+        },
+        output: {
+          format: 'text',
+          validation: { minLength: 50, requiredFields: ['useCase'] }
+        },
+        metadata: { author: 'Canvas CLI', createdAt: now, updatedAt: now, tags: ['technology', 'evaluation'] }
       }
     ];
   }

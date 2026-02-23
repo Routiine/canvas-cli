@@ -173,7 +173,7 @@ export class AgenticCommand {
       return 'Planning phase completed successfully! Use "canvas agentic develop" to create stories.';
     } catch (error) {
       spinner.fail('Planning failed');
-      return `Error: ${error.message}`;
+      return `Error: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -212,7 +212,7 @@ export class AgenticCommand {
 
       return 'Stories created successfully! Use "canvas agentic execute" to implement them.';
     } catch (error) {
-      return `Error: ${error.message}`;
+      return `Error: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -253,11 +253,11 @@ export class AgenticCommand {
     const storyContext: StoryContext = {
       title: story.title,
       description: story.description,
-      acceptanceCriteria: story.acceptanceCriteria.split(',').map(s => s.trim()),
+      acceptanceCriteria: story.acceptanceCriteria.split(',').map((s: string) => s.trim()),
       technicalDetails: story.technicalDetails,
       implementation: '',
       testing: '',
-      dependencies: story.dependencies.split(',').map(s => s.trim())
+      dependencies: story.dependencies.split(',').map((s: string) => s.trim())
     };
 
     // Save story
@@ -338,7 +338,7 @@ export class AgenticCommand {
       return 'Story executed successfully!';
     } catch (error) {
       spinner.fail('Execution failed');
-      return `Error: ${error.message}`;
+      return `Error: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -399,7 +399,7 @@ export class AgenticCommand {
       return 'Full Canvas workflow completed!';
     } catch (error) {
       spinner.fail('Workflow failed');
-      return `Error: ${error.message}`;
+      return `Error: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
 
@@ -540,7 +540,7 @@ Build a command-line tool for developer productivity.
 - Distribution: npm package`
     };
 
-    const { template } = await inquirer.prompt([
+    const { template } = await inquirer.prompt<{ template: keyof typeof templates }>([
       {
         type: 'list',
         name: 'template',

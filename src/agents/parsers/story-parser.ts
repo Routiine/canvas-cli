@@ -35,7 +35,7 @@ export class StoryParser {
   // Regex patterns for story extraction
   private patterns = {
     userStory: /As (?:a|an) ([^,]+),?\s*I want ([^,]+),?\s*(?:so that|because) (.+)/i,
-    givenWhenThen: /Given ([^,]+),?\s*[Ww]hen ([^,]+),?\s*[Tt]hen (.+)/i,
+    givenWhenThen: /Given ([^,]+),?\s*[Ww]hen ([^,]+),?\s*[Tt]hen (.+)/gi,
     acceptanceCriteria: /(?:AC|Acceptance Criteria|Criteria):?\s*(.+)/i,
     storyPoints: /(?:SP|Story Points?|Points?|Estimate):?\s*(\d+)/i,
     priority: /(?:Priority|P):?\s*(Critical|High|Medium|Low|P\d)/i,

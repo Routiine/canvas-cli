@@ -1,17 +1,18 @@
-import { Tool } from '../types.js';
+import { Tool, ToolParameterDefinition, getErrorMessage } from '../types.js';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 
-export abstract class BaseTool implements Tool {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export abstract class BaseTool<TParams = any, TResult = any> implements Tool<TParams, TResult> {
   abstract name: string;
   abstract description: string;
-  abstract parameters?: Record<string, any>;
+  abstract parameters?: Record<string, ToolParameterDefinition>;
   requiresConfirmation = false;
   static autoConfirmMode = false; // Global flag for auto-confirmation
 
-  abstract execute(params: any): Promise<any>;
+  abstract execute(params: TParams): Promise<TResult>;
 
-  async confirmExecution(params: any): Promise<boolean> {
+  async confirmExecution(params: TParams): Promise<boolean> {
     if (!this.requiresConfirmation) {
       return true;
     }
@@ -24,7 +25,7 @@ export abstract class BaseTool implements Tool {
 
     console.log(chalk.yellow(`\n⚠️  Tool: ${this.name}`));
     console.log(chalk.dim('Parameters:'), JSON.stringify(params, null, 2));
-    
+
     const { confirm } = await inquirer.prompt({
       type: 'confirm',
       name: 'confirm',
@@ -35,16 +36,16 @@ export abstract class BaseTool implements Tool {
     return confirm;
   }
 
-  async run(params: any): Promise<any> {
+  async run(params: TParams): Promise<TResult> {
     const confirmed = await this.confirmExecution(params);
     if (!confirmed) {
       throw new Error('Tool execution cancelled by user');
     }
-    
+
     try {
       return await this.execute(params);
-    } catch (error) {
-      console.error(chalk.red(`Error in ${this.name}:`), error);
+    } catch (error: unknown) {
+      console.error(chalk.red(`Error in ${this.name}:`), getErrorMessage(error));
       throw error;
     }
   }

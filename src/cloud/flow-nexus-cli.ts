@@ -106,12 +106,12 @@ export class FlowNexusCLI {
     deploy
       .command('create <name>')
       .description('Deploy a new swarm')
-      .option('-a, --agents <spec>', 'Agent specification (type:count)', (val, acc) => {
+      .option('-a, --agents <spec>', 'Agent specification (type:count)', (val: string, acc: { type: string; count: number }[]) => {
         acc = acc || [];
         const [type, count] = val.split(':');
         acc.push({ type, count: parseInt(count) || 1 });
         return acc;
-      }, [])
+      }, [] as { type: string; count: number }[])
       .option('-o, --orchestrator <type>', 'Orchestrator type', 'kubernetes')
       .option('--auto-scale', 'Enable auto-scaling')
       .option('--min-replicas <n>', 'Minimum replicas', parseInt, 1)
@@ -328,16 +328,14 @@ export class FlowNexusCLI {
         head: ['Property', 'Value']
       });
 
-      table.push(
-        ['ID', sandbox.id],
-        ['Name', sandbox.name],
-        ['Status', sandbox.status],
-        ['Type', sandbox.type],
-        ['CPU', `${sandbox.resources.cpu} vCPUs`],
-        ['Memory', `${sandbox.resources.memory} GB`],
-        ['Storage', `${sandbox.resources.storage} GB`],
-        ['Created', sandbox.createdAt]
-      );
+      table.push(['ID', sandbox.id]);
+      table.push(['Name', sandbox.name]);
+      table.push(['Status', sandbox.status]);
+      table.push(['Type', sandbox.type]);
+      table.push(['CPU', `${sandbox.resources.cpu} vCPUs`]);
+      table.push(['Memory', `${sandbox.resources.memory} GB`]);
+      table.push(['Storage', `${sandbox.resources.storage} GB`]);
+      table.push(['Created', sandbox.createdAt.toString()]);
 
       console.log(table.toString());
     } catch (error: any) {
@@ -491,15 +489,13 @@ export class FlowNexusCLI {
         head: ['Property', 'Value']
       });
 
-      table.push(
-        ['ID', deployment.id],
-        ['Name', deployment.name],
-        ['Status', deployment.status],
-        ['Orchestrator', deployment.swarmConfig.orchestrator],
-        ['Replicas', deployment.swarmConfig.replicas],
-        ['Auto-scaling', swarmConfig.autoScaling ? 'Enabled' : 'Disabled'],
-        ['Created', deployment.createdAt]
-      );
+      table.push(['ID', deployment.id]);
+      table.push(['Name', deployment.name]);
+      table.push(['Status', deployment.status]);
+      table.push(['Orchestrator', deployment.swarmConfig.orchestrator]);
+      table.push(['Replicas', String(deployment.swarmConfig.replicas)]);
+      table.push(['Auto-scaling', swarmConfig.autoScaling ? 'Enabled' : 'Disabled']);
+      table.push(['Created', deployment.createdAt.toString()]);
 
       console.log(table.toString());
     } catch (error: any) {

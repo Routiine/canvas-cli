@@ -174,20 +174,22 @@ export class SelfHealingCodeSystem extends EventEmitter {
     this.patterns.set('null-protection', {
       name: 'Null Pointer Protection',
       pattern: /(\w+)\.(\w+)/g,
-      replacement: (match: string, obj: string, prop: string) => {
+      replacement: ((...args: any[]) => {
+        const [, obj, prop] = args;
         return `${obj}?.${prop}`;
-      },
+      }) as (match: any) => string,
       description: 'Add optional chaining',
       category: 'runtime'
     });
-    
+
     // Array bounds checking
     this.patterns.set('array-bounds', {
       name: 'Array Bounds Checking',
       pattern: /(\w+)\[(\w+)\]/g,
-      replacement: (match: string, arr: string, index: string) => {
+      replacement: ((...args: any[]) => {
+        const [, arr, index] = args;
         return `(${arr} && ${arr}.length > ${index} ? ${arr}[${index}] : undefined)`;
-      },
+      }) as (match: any) => string,
       description: 'Add array bounds checking',
       category: 'runtime'
     });
@@ -796,33 +798,45 @@ export class SelfHealingCodeSystem extends EventEmitter {
     if (this.watchedFiles.has(filePath)) {
       return;
     }
-    
+
     this.watchedFiles.add(filePath);
-    
-    // Set up file watcher
-    const watcher = fs.watch(filePath);
-    
-    watcher.on('change', async () => {
-      if (this.isEnabled) {
-        const issues = await this.analyzeCode(filePath);
-        
-        for (const issue of issues) {
-          if (this.shouldAutoHeal(issue)) {
-            await this.healIssue(issue);
+
+    // Set up file watcher using AbortController
+    const ac = new AbortController();
+    const { signal } = ac;
+
+    // Store the AbortController so we can cancel the watcher later
+    this.fileWatchers.set(filePath, ac);
+
+    // Start watching in the background
+    (async () => {
+      try {
+        for await (const event of fs.watch(filePath, { signal })) {
+          if (event.eventType === 'change' && this.isEnabled) {
+            const issues = await this.analyzeCode(filePath);
+
+            for (const issue of issues) {
+              if (this.shouldAutoHeal(issue)) {
+                await this.healIssue(issue);
+              }
+            }
           }
         }
+      } catch (error: any) {
+        if (error.name !== 'AbortError') {
+          this.emit('watch:error', { filePath, error });
+        }
       }
-    });
-    
-    this.fileWatchers.set(filePath, watcher);
+    })();
+
     this.emit('watch:started', { filePath });
   }
-  
+
   async unwatchFile(filePath: string): Promise<void> {
-    const watcher = this.fileWatchers.get(filePath);
-    
-    if (watcher) {
-      await watcher.close();
+    const ac = this.fileWatchers.get(filePath) as AbortController | undefined;
+
+    if (ac) {
+      ac.abort();
       this.fileWatchers.delete(filePath);
       this.watchedFiles.delete(filePath);
       

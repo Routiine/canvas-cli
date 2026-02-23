@@ -104,7 +104,7 @@ export class SwarmIntelligence extends EventEmitter {
   private agents: Map<string, SwarmAgent> = new Map();
   private tasks: Map<string, SwarmTask> = new Map();
   private solutions: Map<string, SwarmSolution> = new Map();
-  private pheromoneMap: PheromoneMap;
+  private pheromoneMap!: PheromoneMap;
   private globalBest: { position: Vector3D; fitness: number } | null = null;
   private iteration: number = 0;
   private isRunning: boolean = false;
@@ -644,13 +644,13 @@ export class SwarmIntelligence extends EventEmitter {
   }
   
   private calculateProgressRate(): number {
-    if (!this.globalBest || agent.memory.length < 10) return 1;
-    
-    const recentHistory = agent.memory.slice(-10);
-    const oldFitness = recentHistory[0].fitness;
-    const newFitness = recentHistory[recentHistory.length - 1].fitness;
-    
-    return Math.abs(newFitness - oldFitness) / (oldFitness + 0.0001);
+    if (!this.globalBest) return 1;
+
+    // Calculate progress based on current fitness vs initial state
+    const initialFitness = 0.001; // Baseline
+    const currentFitness = this.globalBest.fitness;
+
+    return Math.abs(currentFitness - initialFitness) / (initialFitness + 0.0001);
   }
   
   private getAverageFitness(): number {

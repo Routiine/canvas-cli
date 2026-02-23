@@ -119,6 +119,7 @@ interface HookAction {
   workingDirectory?: string;
   input?: any;
   output?: 'ignore' | 'capture' | 'stream' | 'pipe';
+  timeout?: number;
 }
 
 interface ErrorHandling {
@@ -573,9 +574,8 @@ export class AdvancedHooksSystem extends EventEmitter {
       context,
       variables: Object.fromEntries(this.globalVariables),
       console,
-      require,
       process: {
-        env: process.env,
+        env: {},
         cwd: process.cwd
       }
     };
@@ -675,7 +675,7 @@ export class AdvancedHooksSystem extends EventEmitter {
       try {
         // Check step conditions
         if (step.conditions && !this.evaluateConditions(step.conditions, context)) {
-          currentStepId = step.onSuccess;
+          currentStepId = step.onSuccess ?? '';
           continue;
         }
         
@@ -701,18 +701,19 @@ export class AdvancedHooksSystem extends EventEmitter {
         }
         
         // Move to next step
-        currentStepId = step.onSuccess;
-        
+        currentStepId = step.onSuccess ?? '';
+
       } catch (error) {
-        this.emit('workflow:step-error', { workflowId: workflow.id, stepId: step.id, error });
-        
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.emit('workflow:step-error', { workflowId: workflow.id, stepId: step.id, error: err });
+
         if (step.onFailure) {
           currentStepId = step.onFailure;
         } else if (workflow.errorHandling) {
-          await this.handleWorkflowError(workflow, error, context);
+          await this.handleWorkflowError(workflow, err, context);
           break;
         } else {
-          throw error;
+          throw err;
         }
       }
     }
@@ -822,7 +823,10 @@ export class AdvancedHooksSystem extends EventEmitter {
     // Execute custom evaluation function
     try {
       const func = new Function('context', 'condition', condition.value);
-      return func(context, condition);
+      const sandbox = { context, condition };
+      const vmCtx = vm.createContext(sandbox);
+      const script = new vm.Script(`(${func.toString()})(context, condition)`);
+      return Boolean(script.runInContext(vmCtx, { timeout: 5000 }));
     } catch {
       return false;
     }
@@ -1152,17 +1156,17 @@ export class AdvancedHooksSystem extends EventEmitter {
   }
   
   async saveConfiguration(configPath?: string): Promise<void> {
-    const path = configPath || path.join(process.cwd(), '.canvas-cli', 'hooks.json');
-    
+    const savePath = configPath || path.join(process.cwd(), '.canvas-cli', 'hooks.json');
+
     const config = {
       hooks: Array.from(this.hooks.values()),
       workflows: Array.from(this.workflows.values()),
       variables: Object.fromEntries(this.globalVariables)
     };
-    
-    await fs.writeFile(path, JSON.stringify(config, null, 2), 'utf-8');
-    
-    this.emit('config:saved', { path });
+
+    await fs.writeFile(savePath, JSON.stringify(config, null, 2), 'utf-8');
+
+    this.emit('config:saved', { path: savePath });
   }
 }
 

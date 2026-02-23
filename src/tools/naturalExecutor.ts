@@ -215,7 +215,10 @@ export class NaturalExecutor extends BaseTool {
         };
       
       case 'deleteFile':
-        const fileToDelete = match[1];
+        const fileToDelete = match[1]?.trim();
+        if (!fileToDelete) {
+          return { type: 'file', command: '', confidence: 0, description: 'No file specified to delete' };
+        }
         return {
           type: 'file',
           command: `rm "${fileToDelete}"`,
@@ -234,7 +237,10 @@ export class NaturalExecutor extends BaseTool {
         };
       
       case 'changeDir':
-        const dir = match[1];
+        const dir = match[1]?.trim();
+        if (!dir) {
+          return { type: 'navigation', command: '', confidence: 0, description: 'No directory specified' };
+        }
         return {
           type: 'navigation',
           command: `cd "${dir}"`,
@@ -325,11 +331,14 @@ export class NaturalExecutor extends BaseTool {
         };
       
       case 'killProcess':
-        const processName = match[1];
+        const processName = match[1]?.trim();
+        if (!processName) {
+          return { type: 'system', command: '', confidence: 0, description: 'No process specified to kill' };
+        }
         return {
           type: 'system',
-          command: process.platform === 'win32' 
-            ? `taskkill /F /IM ${processName}` 
+          command: process.platform === 'win32'
+            ? `taskkill /F /IM ${processName}`
             : `pkill ${processName}`,
           confidence: 0.7,
           description: `Kill process: ${processName}`,

@@ -138,14 +138,14 @@ export type FeaturePrioritization = z.infer<typeof FeaturePrioritizationSchema>;
 export class ProductManagerAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: ModelManager;
+  private modelManager: typeof ModelManager;
   private agentId = 'product-manager';
   
   constructor() {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = new ModelManager();
+    this.modelManager = ModelManager;
   }
   
   async initialize(): Promise<void> {

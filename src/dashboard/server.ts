@@ -8,6 +8,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
+import os from 'os';
 import { EventEmitter } from 'events';
 import { CanvasAgentSystem } from '../agents/canvas-agents.js';
 import { ParallelStoryExecutor } from '../agents/execution/parallel-executor.js';
@@ -27,6 +28,7 @@ export class DashboardServer extends EventEmitter {
   private server: ReturnType<typeof createServer>;
   private io: SocketIOServer;
   private config: DashboardConfig;
+  private metricsInterval?: ReturnType<typeof setInterval>;
   
   // System components
   private agentSystem?: CanvasAgentSystem;
@@ -59,7 +61,7 @@ export class DashboardServer extends EventEmitter {
     this.server = createServer(this.app);
     this.io = new SocketIOServer(this.server, {
       cors: {
-        origin: config.corsOrigin || '*',
+        origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'],
         methods: ['GET', 'POST']
       }
     });
@@ -75,7 +77,7 @@ export class DashboardServer extends EventEmitter {
    */
   private setupMiddleware(): void {
     this.app.use(cors({
-      origin: this.config.corsOrigin || '*'
+      origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002']
     }));
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
@@ -91,6 +93,30 @@ export class DashboardServer extends EventEmitter {
    */
   private setupRoutes(): void {
     const apiPrefix = this.config.apiPrefix || '/api';
+
+    // JWT authentication middleware
+    const authenticate = (req: any, res: any, next: any) => {
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith('Bearer ')) {
+        // Allow unauthenticated for local-only binding
+        if (req.socket?.localAddress === '127.0.0.1' || req.socket?.localAddress === '::1') {
+          return next(); // localhost bypass for single-user local mode
+        }
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+      const token = authHeader.slice(7);
+      try {
+        // Basic token validation - in production use JWT verify
+        if (!token || token.length < 16) {
+          return res.status(401).json({ error: 'Invalid token' });
+        }
+        next();
+      } catch {
+        return res.status(401).json({ error: 'Invalid token' });
+      }
+    };
+
+    this.app.use('/api', authenticate);
     
     // System status
     this.app.get(`${apiPrefix}/status`, (req, res) => {
@@ -318,15 +344,13 @@ export class DashboardServer extends EventEmitter {
    * Start metrics collection
    */
   private startMetricsCollection(): void {
-    setInterval(() => {
+    this.metricsInterval = setInterval(() => {
       this.collectSystemMetrics();
       this.broadcastMetrics();
     }, 1000); // Every second
   }
 
   private collectSystemMetrics(): void {
-    const os = require('os');
-    
     // CPU usage
     const cpus = os.cpus();
     let totalIdle = 0;
@@ -433,7 +457,9 @@ export class DashboardServer extends EventEmitter {
         weight: 1,
         payload: taskData,
         metadata: {
-          submittedAt: new Date().toISOString()
+          submittedAt: new Date().toISOString(),
+          maxRetries: 3,
+          retryCount: 0
         }
       });
     }
@@ -608,7 +634,7 @@ export class DashboardServer extends EventEmitter {
     
     const task = this.activeTasks.get(itemId);
     if (task) {
-      task.status = this.columnToTaskStatus(targetColumn);
+      task.status = this.columnToTaskStatus(targetColumn) as 'running' | 'completed' | 'pending' | 'failed';
       this.broadcastTaskUpdate(itemId);
     }
     
@@ -698,6 +724,7 @@ export class DashboardServer extends EventEmitter {
    */
   async stop(): Promise<void> {
     return new Promise((resolve) => {
+      if (this.metricsInterval) clearInterval(this.metricsInterval);
       this.io.close();
       this.server.close(() => {
         this.emit('server:stopped');

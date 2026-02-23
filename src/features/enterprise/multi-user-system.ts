@@ -1,6 +1,7 @@
 /**
  * Multi-User Support System for Canvas CLI
  * Provides user management, authentication, and session handling
+ * with SQLite-backed persistence.
  */
 
 import { EventEmitter } from 'events';
@@ -8,6 +9,10 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import Database from 'better-sqlite3';
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
 
 export interface User {
   id: string;
@@ -88,10 +93,53 @@ export interface UserActivity {
   sessionId?: string;
 }
 
+export interface MultiUserSystemConfig {
+  jwtSecret?: string;
+}
+
+// Internal DB row shape for users table (flat, JSON-serialized fields)
+interface UserDbRow {
+  id: string;
+  username: string;
+  email: string;
+  passwordHash: string;
+  roles: string;           // JSON array
+  permissions: string;     // JSON array
+  profile: string;         // JSON object
+  preferences: string;     // JSON object
+  sessions: string;        // JSON array of session IDs (lightweight; full sessions in sessions table)
+  createdAt: string;
+  updatedAt: string;
+  lastLogin: string | null;
+  isActive: number;        // 0 | 1
+}
+
+// Internal DB row shape for sessions table
+interface SessionDbRow {
+  id: string;
+  userId: string;
+  token: string;
+  deviceInfo: string;      // JSON object
+  createdAt: string;
+  expiresAt: string;
+  lastActivity: string;
+  isActive: number;
+}
+
+// Internal DB row shape for activities table
+interface ActivityDbRow {
+  id: string;
+  userId: string;
+  action: string;
+  resource: string | null;
+  metadata: string;        // JSON object
+  ip: string | null;
+  sessionId: string | null;
+  timestamp: string;
+}
+
 export class MultiUserSystem extends EventEmitter {
-  private users: Map<string, User> = new Map();
-  private sessions: Map<string, UserSession> = new Map();
-  private activities: UserActivity[] = [];
+  private db: Database.Database;
   private jwtSecret: string;
   private tokenExpiry: number = 3600; // 1 hour
   private refreshTokenExpiry: number = 604800; // 7 days
@@ -104,10 +152,78 @@ export class MultiUserSystem extends EventEmitter {
     requireSpecialChars: boolean;
   };
 
-  constructor(jwtSecret?: string) {
+  // Brute force protection (in-memory; not critical to persist across restarts)
+  private loginAttempts: Map<string, { count: number; lockedUntil?: Date }> = new Map();
+  private readonly MAX_LOGIN_ATTEMPTS = 5;
+  private readonly LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+
+  constructor(config?: Partial<MultiUserSystemConfig>) {
     super();
-    this.jwtSecret = jwtSecret || process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
-    
+
+    // Initialize SQLite database
+    const dbDir = path.join(os.homedir(), '.canvas');
+    fs.mkdirSync(dbDir, { recursive: true });
+    const dbPath = path.join(dbDir, 'canvas.db');
+    this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL');
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT,
+        passwordHash TEXT NOT NULL,
+        roles TEXT NOT NULL DEFAULT '[]',
+        permissions TEXT NOT NULL DEFAULT '[]',
+        profile TEXT NOT NULL DEFAULT '{}',
+        preferences TEXT NOT NULL DEFAULT '{}',
+        sessions TEXT NOT NULL DEFAULT '[]',
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        lastLogin TEXT,
+        isActive INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        token TEXT NOT NULL,
+        deviceInfo TEXT NOT NULL DEFAULT '{}',
+        createdAt TEXT NOT NULL,
+        expiresAt TEXT NOT NULL,
+        lastActivity TEXT NOT NULL,
+        isActive INTEGER NOT NULL DEFAULT 1,
+        FOREIGN KEY(userId) REFERENCES users(id)
+      );
+      CREATE TABLE IF NOT EXISTS activities (
+        id TEXT PRIMARY KEY,
+        userId TEXT NOT NULL,
+        action TEXT NOT NULL,
+        resource TEXT,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        ip TEXT,
+        sessionId TEXT,
+        timestamp TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+
+    // Load or generate persistent JWT secret
+    const secretRow = this.db
+      .prepare('SELECT value FROM config WHERE key = ?')
+      .get('jwt_secret') as { value: string } | undefined;
+
+    if (secretRow) {
+      this.jwtSecret = secretRow.value;
+    } else {
+      this.jwtSecret =
+        config?.jwtSecret || process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+      this.db
+        .prepare('INSERT INTO config (key, value) VALUES (?, ?)')
+        .run('jwt_secret', this.jwtSecret);
+    }
+
     this.passwordPolicy = {
       minLength: 8,
       requireUppercase: true,
@@ -115,21 +231,277 @@ export class MultiUserSystem extends EventEmitter {
       requireNumbers: true,
       requireSpecialChars: true
     };
-
-    this.initializeDefaultUsers();
   }
 
   /**
-   * Initialize default system users
+   * Async initializer — call after construction to set up default users.
    */
-  private initializeDefaultUsers(): void {
-    // Create system admin user
+  async initialize(): Promise<void> {
+    await this.initializeDefaultUsers();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Row conversion helpers
+  // ---------------------------------------------------------------------------
+
+  private rowToUser(row: UserDbRow): User {
+    const profile = JSON.parse(row.profile || '{}');
+    const preferences = JSON.parse(row.preferences || '{}');
+    const sessionsIds: string[] = JSON.parse(row.sessions || '[]');
+
+    // Fetch full session objects for convenience
+    const sessions: UserSession[] = sessionsIds
+      .map(id => {
+        const srow = this.db
+          .prepare('SELECT * FROM sessions WHERE id = ?')
+          .get(id) as SessionDbRow | undefined;
+        return srow ? this.rowToSession(srow) : null;
+      })
+      .filter((s): s is UserSession => s !== null);
+
+    return {
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      passwordHash: row.passwordHash,
+      roles: JSON.parse(row.roles || '[]'),
+      permissions: new Set<string>(JSON.parse(row.permissions || '[]')),
+      profile,
+      preferences: {
+        theme: preferences.theme ?? 'default',
+        notifications: preferences.notifications ?? { email: true, push: false, inApp: true },
+        privacy: preferences.privacy ?? { profileVisibility: 'team', activityVisibility: 'team' },
+        collaboration: preferences.collaboration ?? { autoShare: false, defaultPermissions: ['read'] }
+      },
+      sessions,
+      createdAt: new Date(row.createdAt),
+      updatedAt: new Date(row.updatedAt),
+      lastLogin: row.lastLogin ? new Date(row.lastLogin) : undefined,
+      isActive: Boolean(row.isActive)
+    };
+  }
+
+  private userToRow(user: User): UserDbRow {
+    const sessionIds = user.sessions.map(s => s.id);
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      passwordHash: user.passwordHash ?? '',
+      roles: JSON.stringify(user.roles),
+      permissions: JSON.stringify(Array.from(user.permissions)),
+      profile: JSON.stringify(user.profile),
+      preferences: JSON.stringify(user.preferences),
+      sessions: JSON.stringify(sessionIds),
+      createdAt: user.createdAt.toISOString(),
+      updatedAt: user.updatedAt.toISOString(),
+      lastLogin: user.lastLogin?.toISOString() ?? null,
+      isActive: user.isActive ? 1 : 0
+    };
+  }
+
+  private rowToSession(row: SessionDbRow): UserSession {
+    const deviceInfo = JSON.parse(row.deviceInfo || '{}');
+    return {
+      id: row.id,
+      userId: row.userId,
+      token: row.token,
+      deviceInfo,
+      createdAt: new Date(row.createdAt),
+      expiresAt: new Date(row.expiresAt),
+      lastActivity: new Date(row.lastActivity),
+      isActive: Boolean(row.isActive)
+    };
+  }
+
+  private sessionToRow(session: UserSession): SessionDbRow {
+    return {
+      id: session.id,
+      userId: session.userId,
+      token: session.token,
+      deviceInfo: JSON.stringify(session.deviceInfo),
+      createdAt: session.createdAt.toISOString(),
+      expiresAt: session.expiresAt.toISOString(),
+      lastActivity: session.lastActivity.toISOString(),
+      isActive: session.isActive ? 1 : 0
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // DB-backed user CRUD
+  // ---------------------------------------------------------------------------
+
+  private saveUser(user: User): void {
+    const row = this.userToRow(user);
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO users
+          (id, username, email, passwordHash, roles, permissions, profile, preferences, sessions, createdAt, updatedAt, lastLogin, isActive)
+         VALUES
+          (@id, @username, @email, @passwordHash, @roles, @permissions, @profile, @preferences, @sessions, @createdAt, @updatedAt, @lastLogin, @isActive)`
+      )
+      .run(row);
+  }
+
+  private loadUser(id: string): User | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM users WHERE id = ?')
+      .get(id) as UserDbRow | undefined;
+    return row ? this.rowToUser(row) : undefined;
+  }
+
+  private deleteUserFromDb(id: string): void {
+    this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  }
+
+  private allUsers(): User[] {
+    const rows = this.db.prepare('SELECT * FROM users').all() as UserDbRow[];
+    return rows.map(r => this.rowToUser(r));
+  }
+
+  // ---------------------------------------------------------------------------
+  // DB-backed session CRUD
+  // ---------------------------------------------------------------------------
+
+  private saveSession(session: UserSession): void {
+    const row = this.sessionToRow(session);
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO sessions
+          (id, userId, token, deviceInfo, createdAt, expiresAt, lastActivity, isActive)
+         VALUES
+          (@id, @userId, @token, @deviceInfo, @createdAt, @expiresAt, @lastActivity, @isActive)`
+      )
+      .run(row);
+  }
+
+  private loadSession(id: string): UserSession | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM sessions WHERE id = ?')
+      .get(id) as SessionDbRow | undefined;
+    return row ? this.rowToSession(row) : undefined;
+  }
+
+  private deleteSession(id: string): void {
+    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
+  }
+
+  private loadSessionByToken(token: string): UserSession | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM sessions WHERE token = ? AND isActive = 1')
+      .get(token) as SessionDbRow | undefined;
+    return row ? this.rowToSession(row) : undefined;
+  }
+
+  private loadUserSessions(userId: string): UserSession[] {
+    const rows = this.db
+      .prepare('SELECT * FROM sessions WHERE userId = ? AND isActive = 1')
+      .all(userId) as SessionDbRow[];
+    return rows.map(r => this.rowToSession(r));
+  }
+
+  private markSessionInactive(sessionId: string): void {
+    this.db
+      .prepare('UPDATE sessions SET isActive = 0 WHERE id = ?')
+      .run(sessionId);
+  }
+
+  private updateSessionActivity(sessionId: string, lastActivity: Date): void {
+    this.db
+      .prepare('UPDATE sessions SET lastActivity = ? WHERE id = ?')
+      .run(lastActivity.toISOString(), sessionId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // DB-backed activity log
+  // ---------------------------------------------------------------------------
+
+  private saveActivity(activity: UserActivity): void {
+    this.db
+      .prepare(
+        `INSERT INTO activities (id, userId, action, resource, metadata, ip, sessionId, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        uuidv4(),
+        activity.userId,
+        activity.action,
+        activity.resource ?? null,
+        JSON.stringify(activity.metadata ?? {}),
+        activity.ip ?? null,
+        activity.sessionId ?? null,
+        activity.timestamp.toISOString()
+      );
+  }
+
+  private loadUserActivities(userId: string, limit: number): UserActivity[] {
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM activities WHERE userId = ? ORDER BY timestamp DESC LIMIT ?'
+      )
+      .all(userId, limit) as ActivityDbRow[];
+
+    return rows.map(r => ({
+      userId: r.userId,
+      action: r.action,
+      resource: r.resource ?? undefined,
+      timestamp: new Date(r.timestamp),
+      metadata: JSON.parse(r.metadata || '{}'),
+      ip: r.ip ?? undefined,
+      sessionId: r.sessionId ?? undefined
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Brute-force protection
+  // ---------------------------------------------------------------------------
+
+  private isAccountLocked(username: string): boolean {
+    const attempts = this.loginAttempts.get(username);
+    if (!attempts) return false;
+    if (!attempts.lockedUntil) return false;
+    if (new Date() > attempts.lockedUntil) {
+      this.loginAttempts.delete(username);
+      return false;
+    }
+    return true;
+  }
+
+  private recordFailedAttempt(username: string): void {
+    const attempts = this.loginAttempts.get(username) || { count: 0 };
+    attempts.count++;
+    if (attempts.count >= this.MAX_LOGIN_ATTEMPTS) {
+      attempts.lockedUntil = new Date(Date.now() + this.LOCKOUT_DURATION_MS);
+      this.emit('account:locked', { username, lockedUntil: attempts.lockedUntil });
+    }
+    this.loginAttempts.set(username, attempts);
+  }
+
+  private clearLoginAttempts(username: string): void {
+    this.loginAttempts.delete(username);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Default users
+  // ---------------------------------------------------------------------------
+
+  private async initializeDefaultUsers(): Promise<void> {
+    // Only create if admin does not already exist
+    const existing = this.db
+      .prepare("SELECT id FROM users WHERE id = 'system-admin'")
+      .get();
+    if (existing) return;
+
+    const initialPassword = crypto.randomBytes(16).toString('hex');
+    const passwordHash = await bcrypt.hash(initialPassword, 10);
+
     const admin: User = {
       id: 'system-admin',
       username: 'admin',
       email: 'admin@canvas-cli.local',
+      passwordHash,
       roles: ['admin', 'user'],
-      permissions: new Set(['*']), // All permissions
+      permissions: new Set(['*']),
       profile: {
         displayName: 'System Administrator',
         timezone: 'UTC',
@@ -142,8 +514,15 @@ export class MultiUserSystem extends EventEmitter {
       preferences: this.getDefaultPreferences()
     };
 
-    this.users.set(admin.id, admin);
+    this.saveUser(admin);
+
+    console.log('\n[SECURITY] Initial admin password generated.');
+    console.log('[SECURITY] Run "canvas config admin-password" to set a new password.');
   }
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
 
   /**
    * Register a new user
@@ -155,26 +534,21 @@ export class MultiUserSystem extends EventEmitter {
     profile?: Partial<UserProfile>
   ): Promise<AuthResult> {
     try {
-      // Validate username
       if (this.isUsernameTaken(username)) {
         return { success: false, error: 'Username already taken' };
       }
 
-      // Validate email
       if (this.isEmailTaken(email)) {
         return { success: false, error: 'Email already registered' };
       }
 
-      // Validate password
       const passwordValidation = this.validatePassword(password);
       if (!passwordValidation.valid) {
         return { success: false, error: passwordValidation.error };
       }
 
-      // Hash password
       const passwordHash = await bcrypt.hash(password, 10);
 
-      // Create user
       const user: User = {
         id: uuidv4(),
         username,
@@ -195,16 +569,14 @@ export class MultiUserSystem extends EventEmitter {
         preferences: this.getDefaultPreferences()
       };
 
-      this.users.set(user.id, user);
+      this.saveUser(user);
 
-      // Log activity
       this.logActivity({
         userId: user.id,
         action: 'user.registered',
         timestamp: new Date()
       });
 
-      // Generate tokens
       const { token, refreshToken } = this.generateTokens(user);
 
       this.emit('user:registered', user);
@@ -226,41 +598,50 @@ export class MultiUserSystem extends EventEmitter {
    */
   async authenticate(username: string, password: string): Promise<AuthResult> {
     try {
-      // Find user
+      if (this.isAccountLocked(username)) {
+        const attempts = this.loginAttempts.get(username);
+        const remainingTime = attempts?.lockedUntil
+          ? Math.ceil((attempts.lockedUntil.getTime() - Date.now()) / 60000)
+          : 0;
+        return {
+          success: false,
+          error: `Account locked due to too many failed attempts. Try again in ${remainingTime} minutes.`
+        };
+      }
+
       const user = this.findUserByUsername(username);
       if (!user) {
+        this.recordFailedAttempt(username);
         return { success: false, error: 'Invalid credentials' };
       }
 
-      // Check if user is active
       if (!user.isActive) {
         return { success: false, error: 'Account is disabled' };
       }
 
-      // Verify password
       if (!user.passwordHash) {
         return { success: false, error: 'Password not set' };
       }
 
       const isValid = await bcrypt.compare(password, user.passwordHash);
       if (!isValid) {
+        this.recordFailedAttempt(username);
         return { success: false, error: 'Invalid credentials' };
       }
+
+      this.clearLoginAttempts(username);
 
       // Check concurrent sessions
       const activeSessions = this.getUserActiveSessions(user.id);
       if (activeSessions.length >= this.maxConcurrentSessions) {
-        // Terminate oldest session
-        const oldestSession = activeSessions.sort((a, b) => 
-          a.createdAt.getTime() - b.createdAt.getTime()
+        const oldestSession = activeSessions.sort(
+          (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
         )[0];
         this.terminateSession(oldestSession.id);
       }
 
-      // Generate tokens
       const { token, refreshToken } = this.generateTokens(user);
 
-      // Create session
       const session: UserSession = {
         id: uuidv4(),
         userId: user.id,
@@ -275,11 +656,13 @@ export class MultiUserSystem extends EventEmitter {
         isActive: true
       };
 
-      this.sessions.set(session.id, session);
+      this.saveSession(session);
+
+      // Update user's session list and lastLogin in DB
       user.sessions.push(session);
       user.lastLogin = new Date();
+      this.saveUser(user);
 
-      // Log activity
       this.logActivity({
         userId: user.id,
         action: 'user.login',
@@ -307,13 +690,11 @@ export class MultiUserSystem extends EventEmitter {
   async logout(token: string): Promise<boolean> {
     try {
       const decoded = jwt.verify(token, this.jwtSecret) as any;
-      const session = this.findSessionByToken(token);
-      
-      if (session) {
-        session.isActive = false;
-        this.sessions.delete(session.id);
+      const session = this.loadSessionByToken(token);
 
-        // Log activity
+      if (session) {
+        this.markSessionInactive(session.id);
+
         this.logActivity({
           userId: decoded.userId,
           action: 'user.logout',
@@ -325,7 +706,7 @@ export class MultiUserSystem extends EventEmitter {
       }
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -336,8 +717,8 @@ export class MultiUserSystem extends EventEmitter {
   verifyToken(token: string): { valid: boolean; user?: User; error?: string } {
     try {
       const decoded = jwt.verify(token, this.jwtSecret) as any;
-      const user = this.users.get(decoded.userId);
-      
+      const user = this.loadUser(decoded.userId);
+
       if (!user) {
         return { valid: false, error: 'User not found' };
       }
@@ -346,13 +727,13 @@ export class MultiUserSystem extends EventEmitter {
         return { valid: false, error: 'User is not active' };
       }
 
-      const session = this.findSessionByToken(token);
+      const session = this.loadSessionByToken(token);
       if (!session || !session.isActive) {
         return { valid: false, error: 'Session expired' };
       }
 
       // Update last activity
-      session.lastActivity = new Date();
+      this.updateSessionActivity(session.id, new Date());
 
       return { valid: true, user };
     } catch (error: any) {
@@ -366,17 +747,16 @@ export class MultiUserSystem extends EventEmitter {
   async refreshToken(refreshToken: string): Promise<AuthResult> {
     try {
       const decoded = jwt.verify(refreshToken, this.jwtSecret) as any;
-      
+
       if (decoded.type !== 'refresh') {
         return { success: false, error: 'Invalid refresh token' };
       }
 
-      const user = this.users.get(decoded.userId);
+      const user = this.loadUser(decoded.userId);
       if (!user) {
         return { success: false, error: 'User not found' };
       }
 
-      // Generate new tokens
       const tokens = this.generateTokens(user);
 
       return {
@@ -395,13 +775,13 @@ export class MultiUserSystem extends EventEmitter {
    * Update user profile
    */
   async updateProfile(userId: string, updates: Partial<UserProfile>): Promise<boolean> {
-    const user = this.users.get(userId);
+    const user = this.loadUser(userId);
     if (!user) return false;
 
     user.profile = { ...user.profile, ...updates };
     user.updatedAt = new Date();
+    this.saveUser(user);
 
-    // Log activity
     this.logActivity({
       userId,
       action: 'user.profile.updated',
@@ -417,11 +797,12 @@ export class MultiUserSystem extends EventEmitter {
    * Update user preferences
    */
   async updatePreferences(userId: string, preferences: Partial<UserPreferences>): Promise<boolean> {
-    const user = this.users.get(userId);
+    const user = this.loadUser(userId);
     if (!user) return false;
 
     user.preferences = { ...user.preferences, ...preferences };
     user.updatedAt = new Date();
+    this.saveUser(user);
 
     this.emit('user:preferences:updated', user);
     return true;
@@ -431,25 +812,21 @@ export class MultiUserSystem extends EventEmitter {
    * Change password
    */
   async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<boolean> {
-    const user = this.users.get(userId);
+    const user = this.loadUser(userId);
     if (!user || !user.passwordHash) return false;
 
-    // Verify old password
     const isValid = await bcrypt.compare(oldPassword, user.passwordHash);
     if (!isValid) return false;
 
-    // Validate new password
     const validation = this.validatePassword(newPassword);
     if (!validation.valid) return false;
 
-    // Update password
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     user.updatedAt = new Date();
+    this.saveUser(user);
 
-    // Invalidate all sessions
     this.invalidateUserSessions(userId);
 
-    // Log activity
     this.logActivity({
       userId,
       action: 'user.password.changed',
@@ -461,7 +838,7 @@ export class MultiUserSystem extends EventEmitter {
   }
 
   /**
-   * Reset password
+   * Reset password (request)
    */
   async resetPassword(email: string): Promise<{ success: boolean; resetToken?: string }> {
     const user = this.findUserByEmail(email);
@@ -469,14 +846,12 @@ export class MultiUserSystem extends EventEmitter {
       return { success: false };
     }
 
-    // Generate reset token
     const resetToken = jwt.sign(
       { userId: user.id, type: 'password-reset' },
       this.jwtSecret,
       { expiresIn: '1h' }
     );
 
-    // Log activity
     this.logActivity({
       userId: user.id,
       action: 'user.password.reset.requested',
@@ -494,26 +869,23 @@ export class MultiUserSystem extends EventEmitter {
   async completePasswordReset(resetToken: string, newPassword: string): Promise<boolean> {
     try {
       const decoded = jwt.verify(resetToken, this.jwtSecret) as any;
-      
+
       if (decoded.type !== 'password-reset') {
         return false;
       }
 
-      const user = this.users.get(decoded.userId);
+      const user = this.loadUser(decoded.userId);
       if (!user) return false;
 
-      // Validate new password
       const validation = this.validatePassword(newPassword);
       if (!validation.valid) return false;
 
-      // Update password
       user.passwordHash = await bcrypt.hash(newPassword, 10);
       user.updatedAt = new Date();
+      this.saveUser(user);
 
-      // Invalidate all sessions
       this.invalidateUserSessions(user.id);
 
-      // Log activity
       this.logActivity({
         userId: user.id,
         action: 'user.password.reset.completed',
@@ -521,7 +893,7 @@ export class MultiUserSystem extends EventEmitter {
       });
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -530,14 +902,14 @@ export class MultiUserSystem extends EventEmitter {
    * Get user by ID
    */
   getUser(userId: string): User | undefined {
-    return this.users.get(userId);
+    return this.loadUser(userId);
   }
 
   /**
    * Get all users
    */
   getAllUsers(): User[] {
-    return Array.from(this.users.values());
+    return this.allUsers();
   }
 
   /**
@@ -545,10 +917,11 @@ export class MultiUserSystem extends EventEmitter {
    */
   searchUsers(query: string): User[] {
     const lowerQuery = query.toLowerCase();
-    return Array.from(this.users.values()).filter(user =>
-      user.username.toLowerCase().includes(lowerQuery) ||
-      user.email.toLowerCase().includes(lowerQuery) ||
-      user.profile.displayName.toLowerCase().includes(lowerQuery)
+    return this.allUsers().filter(
+      user =>
+        user.username.toLowerCase().includes(lowerQuery) ||
+        user.email.toLowerCase().includes(lowerQuery) ||
+        user.profile.displayName.toLowerCase().includes(lowerQuery)
     );
   }
 
@@ -556,38 +929,35 @@ export class MultiUserSystem extends EventEmitter {
    * Get user activities
    */
   getUserActivities(userId: string, limit: number = 100): UserActivity[] {
-    return this.activities
-      .filter(activity => activity.userId === userId)
-      .slice(-limit);
+    return this.loadUserActivities(userId, limit);
   }
 
   /**
    * Get active sessions
    */
   getActiveSessions(): UserSession[] {
-    return Array.from(this.sessions.values())
-      .filter(session => session.isActive);
+    const rows = this.db
+      .prepare('SELECT * FROM sessions WHERE isActive = 1')
+      .all() as SessionDbRow[];
+    return rows.map(r => this.rowToSession(r));
   }
 
   /**
    * Get user's active sessions
    */
   getUserActiveSessions(userId: string): UserSession[] {
-    return Array.from(this.sessions.values())
-      .filter(session => session.userId === userId && session.isActive);
+    return this.loadUserSessions(userId);
   }
 
   /**
    * Terminate a session
    */
   terminateSession(sessionId: string): boolean {
-    const session = this.sessions.get(sessionId);
+    const session = this.loadSession(sessionId);
     if (!session) return false;
 
-    session.isActive = false;
-    this.sessions.delete(sessionId);
+    this.markSessionInactive(sessionId);
 
-    // Log activity
     this.logActivity({
       userId: session.userId,
       action: 'session.terminated',
@@ -613,17 +983,17 @@ export class MultiUserSystem extends EventEmitter {
    * Enable/disable user
    */
   setUserActive(userId: string, isActive: boolean): boolean {
-    const user = this.users.get(userId);
+    const user = this.loadUser(userId);
     if (!user) return false;
 
     user.isActive = isActive;
     user.updatedAt = new Date();
+    this.saveUser(user);
 
     if (!isActive) {
       this.invalidateUserSessions(userId);
     }
 
-    // Log activity
     this.logActivity({
       userId,
       action: isActive ? 'user.enabled' : 'user.disabled',
@@ -638,19 +1008,14 @@ export class MultiUserSystem extends EventEmitter {
    * Delete user
    */
   deleteUser(userId: string): boolean {
-    const user = this.users.get(userId);
+    const user = this.loadUser(userId);
     if (!user) return false;
 
-    // Don't delete system admin
     if (userId === 'system-admin') return false;
 
-    // Invalidate sessions
     this.invalidateUserSessions(userId);
+    this.deleteUserFromDb(userId);
 
-    // Delete user
-    this.users.delete(userId);
-
-    // Log activity
     this.logActivity({
       userId,
       action: 'user.deleted',
@@ -661,9 +1026,10 @@ export class MultiUserSystem extends EventEmitter {
     return true;
   }
 
-  /**
-   * Helper: Generate JWT tokens
-   */
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
   private generateTokens(user: User): { token: string; refreshToken: string } {
     const token = jwt.sign(
       {
@@ -688,12 +1054,12 @@ export class MultiUserSystem extends EventEmitter {
     return { token, refreshToken };
   }
 
-  /**
-   * Helper: Validate password
-   */
   private validatePassword(password: string): { valid: boolean; error?: string } {
     if (password.length < this.passwordPolicy.minLength) {
-      return { valid: false, error: `Password must be at least ${this.passwordPolicy.minLength} characters` };
+      return {
+        valid: false,
+        error: `Password must be at least ${this.passwordPolicy.minLength} characters`
+      };
     }
 
     if (this.passwordPolicy.requireUppercase && !/[A-Z]/.test(password)) {
@@ -715,49 +1081,34 @@ export class MultiUserSystem extends EventEmitter {
     return { valid: true };
   }
 
-  /**
-   * Helper: Check if username is taken
-   */
   private isUsernameTaken(username: string): boolean {
-    return Array.from(this.users.values())
-      .some(user => user.username.toLowerCase() === username.toLowerCase());
+    const row = this.db
+      .prepare('SELECT id FROM users WHERE LOWER(username) = LOWER(?)')
+      .get(username);
+    return row !== undefined;
   }
 
-  /**
-   * Helper: Check if email is taken
-   */
   private isEmailTaken(email: string): boolean {
-    return Array.from(this.users.values())
-      .some(user => user.email.toLowerCase() === email.toLowerCase());
+    const row = this.db
+      .prepare('SELECT id FROM users WHERE LOWER(email) = LOWER(?)')
+      .get(email);
+    return row !== undefined;
   }
 
-  /**
-   * Helper: Find user by username
-   */
   private findUserByUsername(username: string): User | undefined {
-    return Array.from(this.users.values())
-      .find(user => user.username.toLowerCase() === username.toLowerCase());
+    const row = this.db
+      .prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)')
+      .get(username) as UserDbRow | undefined;
+    return row ? this.rowToUser(row) : undefined;
   }
 
-  /**
-   * Helper: Find user by email
-   */
   private findUserByEmail(email: string): User | undefined {
-    return Array.from(this.users.values())
-      .find(user => user.email.toLowerCase() === email.toLowerCase());
+    const row = this.db
+      .prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?)')
+      .get(email) as UserDbRow | undefined;
+    return row ? this.rowToUser(row) : undefined;
   }
 
-  /**
-   * Helper: Find session by token
-   */
-  private findSessionByToken(token: string): UserSession | undefined {
-    return Array.from(this.sessions.values())
-      .find(session => session.token === token);
-  }
-
-  /**
-   * Helper: Get default preferences
-   */
   private getDefaultPreferences(): UserPreferences {
     return {
       theme: 'default',
@@ -777,20 +1128,22 @@ export class MultiUserSystem extends EventEmitter {
     };
   }
 
-  /**
-   * Helper: Log activity
-   */
   private logActivity(activity: UserActivity): void {
-    this.activities.push(activity);
-    
-    // Keep only last 10000 activities
-    if (this.activities.length > 10000) {
-      this.activities = this.activities.slice(-10000);
-    }
-
+    this.saveActivity(activity);
     this.emit('activity:logged', activity);
   }
 }
 
-// Export singleton instance
-export const multiUserSystem = new MultiUserSystem();
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+export { MultiUserSystem as default };
+export let multiUserSystem: MultiUserSystem;
+
+export async function initializeMultiUserSystem(
+  config?: Partial<MultiUserSystemConfig>
+): Promise<MultiUserSystem> {
+  multiUserSystem = new MultiUserSystem(config);
+  await multiUserSystem.initialize();
+  return multiUserSystem;
+}

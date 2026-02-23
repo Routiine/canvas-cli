@@ -314,9 +314,11 @@ export class ParallelStoryExecutor extends EventEmitter {
     
     // Store in memory
     await this.memory.remember(plan, 'execution_plan', {
-      planId,
-      storyCount: stories.length,
-      taskCount: tasks.length
+      tags: [
+        `planId:${planId}`,
+        `storyCount:${stories.length}`,
+        `taskCount:${tasks.length}`
+      ]
     });
     
     this.emit('plan:created', plan);

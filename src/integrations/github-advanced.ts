@@ -564,11 +564,12 @@ export class GitHubAdvancedIntegration extends EventEmitter {
       repo
     });
     
-    // Calculate stats
-    const lastWeek = activity?.[activity.length - 1]?.total || 0;
-    const lastMonth = activity?.slice(-4).reduce((sum, week) => sum + week.total, 0) || 0;
-    const total = activity?.reduce((sum, week) => sum + week.total, 0) || 0;
-    const frequency = activity?.map(week => week.total) || [];
+    // Calculate stats - activity can be an array or empty object
+    const activityArray = Array.isArray(activity) ? activity : [];
+    const lastWeek = activityArray[activityArray.length - 1]?.total || 0;
+    const lastMonth = activityArray.slice(-4).reduce((sum, week) => sum + week.total, 0) || 0;
+    const total = activityArray.reduce((sum, week) => sum + week.total, 0) || 0;
+    const frequency = activityArray.map(week => week.total) || [];
     
     return {
       total,
@@ -596,7 +597,7 @@ export class GitHubAdvancedIntegration extends EventEmitter {
       })
     ]);
     
-    const openCount = open.headers['x-total-count'] ? parseInt(open.headers['x-total-count']) : open.data.length;
+    const openCount = open.headers['x-total-count'] ? parseInt(String(open.headers['x-total-count'])) : open.data.length;
     const closedPRs = closed.data;
     
     // Calculate merge stats
@@ -667,7 +668,7 @@ export class GitHubAdvancedIntegration extends EventEmitter {
       })
     ]);
     
-    const openCount = open.headers['x-total-count'] ? parseInt(open.headers['x-total-count']) : open.data.length;
+    const openCount = open.headers['x-total-count'] ? parseInt(String(open.headers['x-total-count'])) : open.data.length;
     const closedIssues = closed.data;
     
     // Calculate average close time
@@ -739,18 +740,21 @@ export class GitHubAdvancedIntegration extends EventEmitter {
     const dayMs = 24 * 60 * 60 * 1000;
     const weekMs = 7 * dayMs;
     
-    const recentCommits = events.filter(e => 
-      e.type === 'PushEvent' && 
+    const recentCommits = events.filter(e =>
+      e.type === 'PushEvent' &&
+      e.created_at &&
       new Date(e.created_at).getTime() > now - dayMs
     ).length;
-    
-    const recentIssues = events.filter(e => 
-      e.type === 'IssuesEvent' && 
+
+    const recentIssues = events.filter(e =>
+      e.type === 'IssuesEvent' &&
+      e.created_at &&
       new Date(e.created_at).getTime() > now - weekMs
     ).length;
-    
-    const recentPRs = events.filter(e => 
-      e.type === 'PullRequestEvent' && 
+
+    const recentPRs = events.filter(e =>
+      e.type === 'PullRequestEvent' &&
+      e.created_at &&
       new Date(e.created_at).getTime() > now - weekMs
     ).length;
     
@@ -1033,12 +1037,19 @@ export class GitHubAdvancedIntegration extends EventEmitter {
       
       async createComment(number: number, comment: string, path?: string, line?: number): Promise<void> {
         if (path && line) {
+          // Get PR head SHA for commit_id
+          const pr = await self.octokit.pulls.get({
+            owner: self.config.owner!,
+            repo: self.config.repo!,
+            pull_number: number
+          });
           // Create review comment
           await self.octokit.pulls.createReviewComment({
             owner: self.config.owner!,
             repo: self.config.repo!,
             pull_number: number,
             body: comment,
+            commit_id: pr.data.head.sha,
             path,
             line
           });

@@ -32,8 +32,15 @@ export class GitLabMRTool implements Tool {
   }
 
   async run(params: any): Promise<any> {
+    if (!params.action || typeof params.action !== 'string') {
+      throw new Error('Action is required (create, list, merge, get)');
+    }
+
     switch (params.action) {
       case 'create':
+        if (!params.title || !params.sourceBranch || !params.targetBranch) {
+          throw new Error('title, sourceBranch, and targetBranch are required for create');
+        }
         return await gitlab.createMergeRequest(
           params.title,
           params.sourceBranch,
@@ -43,11 +50,13 @@ export class GitLabMRTool implements Tool {
       case 'list':
         return await gitlab.listMergeRequests(params.state || 'opened');
       case 'merge':
+        if (!params.mrIid) throw new Error('mrIid is required for merge');
         return await gitlab.mergeMergeRequest(params.mrIid);
       case 'get':
+        if (!params.mrIid) throw new Error('mrIid is required for get');
         return await gitlab.getMergeRequest(params.mrIid);
       default:
-        throw new Error(`Unknown action: ${params.action}`);
+        throw new Error(`Unknown action: ${params.action}. Use: create, list, merge, get`);
     }
   }
 }
@@ -71,19 +80,27 @@ export class GitLabPipelineTool implements Tool {
   }
 
   async run(params: any): Promise<any> {
+    if (!params.action || typeof params.action !== 'string') {
+      throw new Error('Action is required (trigger, list, get, retry, cancel)');
+    }
+
     switch (params.action) {
       case 'trigger':
+        if (!params.ref) throw new Error('ref is required for trigger');
         return await gitlab.triggerPipeline(params.ref, params.variables);
       case 'list':
         return await gitlab.listPipelines(params.ref);
       case 'get':
+        if (!params.pipelineId) throw new Error('pipelineId is required for get');
         return await gitlab.getPipeline(params.pipelineId);
       case 'retry':
+        if (!params.pipelineId) throw new Error('pipelineId is required for retry');
         return await gitlab.retryPipeline(params.pipelineId);
       case 'cancel':
+        if (!params.pipelineId) throw new Error('pipelineId is required for cancel');
         return await gitlab.cancelPipeline(params.pipelineId);
       default:
-        throw new Error(`Unknown action: ${params.action}`);
+        throw new Error(`Unknown action: ${params.action}. Use: trigger, list, get, retry, cancel`);
     }
   }
 }
@@ -109,8 +126,13 @@ export class GitLabIssueTool implements Tool {
   }
 
   async run(params: any): Promise<any> {
+    if (!params.action || typeof params.action !== 'string') {
+      throw new Error('Action is required (create, list, update)');
+    }
+
     switch (params.action) {
       case 'create':
+        if (!params.title) throw new Error('title is required for create');
         return await gitlab.createIssue(
           params.title,
           params.description,
@@ -119,9 +141,10 @@ export class GitLabIssueTool implements Tool {
       case 'list':
         return await gitlab.listIssues('opened', params.labels);
       case 'update':
+        if (!params.issueIid) throw new Error('issueIid is required for update');
         return await gitlab.updateIssue(params.issueIid, params.updates);
       default:
-        throw new Error(`Unknown action: ${params.action}`);
+        throw new Error(`Unknown action: ${params.action}. Use: create, list, update`);
     }
   }
 }
@@ -154,25 +177,36 @@ export class JiraIssueTool implements Tool {
   }
 
   async run(params: any): Promise<any> {
+    if (!params.action || typeof params.action !== 'string') {
+      throw new Error('Action is required (create, get, update, transition, search, my_issues)');
+    }
+
     switch (params.action) {
       case 'create':
+        if (!params.summary) throw new Error('summary is required for create');
         return await jira.createIssue({
           summary: params.summary,
           description: params.description,
-          issueType: params.issueType
+          issueType: params.issueType || 'Task'
         });
       case 'get':
+        if (!params.issueKey) throw new Error('issueKey is required for get');
         return await jira.getIssue(params.issueKey);
       case 'update':
+        if (!params.issueKey) throw new Error('issueKey is required for update');
         return await jira.updateIssue(params.issueKey, params.updates);
       case 'transition':
+        if (!params.issueKey || !params.transitionName) {
+          throw new Error('issueKey and transitionName are required for transition');
+        }
         return await jira.transitionIssue(params.issueKey, params.transitionName);
       case 'search':
+        if (!params.jql) throw new Error('jql is required for search');
         return await jira.searchIssues(params.jql);
       case 'my_issues':
         return await jira.getMyIssues();
       default:
-        throw new Error(`Unknown action: ${params.action}`);
+        throw new Error(`Unknown action: ${params.action}. Use: create, get, update, transition, search, my_issues`);
     }
   }
 }
@@ -271,24 +305,39 @@ export class SlackMessageTool implements Tool {
   }
 
   async run(params: any): Promise<any> {
+    if (!params.action || typeof params.action !== 'string') {
+      throw new Error('Action is required (send, update, delete, ephemeral)');
+    }
+    if (!params.channel) {
+      throw new Error('channel is required');
+    }
+
     switch (params.action) {
       case 'send':
+        if (!params.text && !params.blocks) {
+          throw new Error('text or blocks is required for send');
+        }
         return await slack.sendMessage({
           channel: params.channel,
           text: params.text,
           blocks: params.blocks
         });
       case 'update':
+        if (!params.timestamp) throw new Error('timestamp is required for update');
         return await slack.updateMessage(params.channel, params.timestamp, {
           text: params.text,
           blocks: params.blocks
         });
       case 'delete':
+        if (!params.timestamp) throw new Error('timestamp is required for delete');
         return await slack.deleteMessage(params.channel, params.timestamp);
       case 'ephemeral':
+        if (!params.user || !params.text) {
+          throw new Error('user and text are required for ephemeral');
+        }
         return await slack.sendEphemeral(params.channel, params.user, params.text);
       default:
-        throw new Error(`Unknown action: ${params.action}`);
+        throw new Error(`Unknown action: ${params.action}. Use: send, update, delete, ephemeral`);
     }
   }
 }

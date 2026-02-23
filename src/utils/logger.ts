@@ -136,6 +136,23 @@ class Logger {
     this.log('success', message, data);
   }
 
+  /**
+   * Log expected errors at debug level (e.g., file not found, optional config missing)
+   * These are not real errors, just expected conditions
+   */
+  debugError(message: string, error?: Error | any): void {
+    if (!this.shouldLog('debug')) return;
+    const errorMsg = error instanceof Error ? error.message : (error ? String(error) : '');
+    this.log('debug', `${message}${errorMsg ? ': ' + errorMsg : ''}`);
+  }
+
+  /**
+   * Log and return - useful for catch blocks that should continue
+   */
+  catch(message: string, error?: Error | any): void {
+    this.debugError(message, error);
+  }
+
   // Convenience method for progress messages
   progress(message: string): void {
     if (this.config.enableConsole) {

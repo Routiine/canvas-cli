@@ -178,7 +178,7 @@ export type BacklogRefinement = z.infer<typeof BacklogRefinementSchema>;
 export class ScrumMasterAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: ModelManager;
+  private modelManager: typeof ModelManager;
   private storyParser: StoryParser;
   private contextEmbedder: ContextEmbedder;
   private storyValidator: StoryValidator;
@@ -193,7 +193,7 @@ export class ScrumMasterAgent extends EventEmitter {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = new ModelManager();
+    this.modelManager = ModelManager;
     this.storyParser = new StoryParser();
     this.contextEmbedder = new ContextEmbedder();
     this.storyValidator = new StoryValidator();

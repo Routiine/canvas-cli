@@ -238,14 +238,14 @@ export type APIDesign = z.infer<typeof APIDesignSchema>;
 export class SolutionsArchitectAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: ModelManager;
+  private modelManager: typeof ModelManager;
   private agentId = 'solutions-architect';
   
   constructor() {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = new ModelManager();
+    this.modelManager = ModelManager;
   }
   
   async initialize(): Promise<void> {

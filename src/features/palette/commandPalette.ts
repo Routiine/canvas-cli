@@ -492,11 +492,11 @@ export class CommandPalette extends EventEmitter {
       // Show suggestions if available
       if (param.suggestions) {
         (async () => {
-          const suggestions = typeof param.suggestions === 'function' 
-            ? await param.suggestions() 
+          const suggestions = typeof param.suggestions === 'function'
+            ? await param.suggestions()
             : param.suggestions;
-          
-          if (suggestions.length > 0) {
+
+          if (suggestions && suggestions.length > 0) {
             console.log(chalk.dim('Suggestions: ' + suggestions.join(', ')));
           }
         })();

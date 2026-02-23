@@ -405,7 +405,7 @@ export class ImplementationStorage extends EventEmitter {
       const metadata = await fs.readJson(metadataPath);
       
       // Load files
-      const files = [];
+      const files: { path: string; content: string; type: string; size: number }[] = [];
       const walkDir = async (dir: string, base: string = ''): Promise<void> => {
         const entries = await fs.readdir(dir, { withFileTypes: true });
         

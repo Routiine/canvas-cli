@@ -20,7 +20,16 @@ export class ImageAnalysisTool extends BaseTool {
   };
 
   async execute(params: { path: string; extract_text?: boolean; get_metadata?: boolean }): Promise<any> {
+    if (!params.path || typeof params.path !== 'string') {
+      throw new Error('Image path is required');
+    }
+
     const imagePath = path.resolve(params.path);
+
+    if (!await fs.pathExists(imagePath)) {
+      throw new Error(`Image file not found: ${params.path}`);
+    }
+
     const buffer = await fs.readFile(imagePath);
     const fileType = await fileTypeFromBuffer(buffer);
     
@@ -98,9 +107,18 @@ export class PDFProcessingTool extends BaseTool {
   };
 
   async execute(params: { path: string; page_range?: string; extract_images?: boolean }): Promise<any> {
+    if (!params.path || typeof params.path !== 'string') {
+      throw new Error('PDF path is required');
+    }
+
     const pdfPath = path.resolve(params.path);
+
+    if (!await fs.pathExists(pdfPath)) {
+      throw new Error(`PDF file not found: ${params.path}`);
+    }
+
     const dataBuffer = await fs.readFile(pdfPath);
-    
+
     const data = await parsePDF(dataBuffer);
     
     if (data.error) {
@@ -124,7 +142,7 @@ export class PDFProcessingTool extends BaseTool {
     // Parse specific page range if requested
     if (params.page_range) {
       const [start, end] = params.page_range.split('-').map(Number);
-      const pages = data.text.split('\n\n');
+      const pages = (data.text || '').split('\n\n');
       result.text = pages.slice(start - 1, end).join('\n\n');
     }
 

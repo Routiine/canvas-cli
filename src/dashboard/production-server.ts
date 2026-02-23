@@ -13,6 +13,11 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 
+// Unhandled rejection handler at module level
+process.on('unhandledRejection', (reason, _promise) => {
+  console.error('[ERROR] Unhandled rejection:', String(reason));
+});
+
 // Validation schemas
 const TaskSchema = z.object({
   id: z.string(),
@@ -64,28 +69,29 @@ interface ResourceUsage {
   cpu: {
     usage: number;
     cores: number;
-    loadAverage: number[];
   };
   memory: {
-    used: number;
     total: number;
+    used: number;
+    free: number;
     percentage: number;
   };
   disk: {
-    used: number;
-    total: number;
     percentage: number;
+    note: string;
   };
   network: {
     bytesReceived: number;
     bytesSent: number;
+    note: string;
   };
+  uptime: number;
 }
 
 class ProductionDashboardServer extends EventEmitter {
-  private app: express.Application;
-  private server: ReturnType<typeof createServer>;
-  private io: SocketIOServer;
+  private app!: express.Application;
+  private server!: ReturnType<typeof createServer>;
+  private io!: SocketIOServer;
   private startTime: number;
   private dataDir: string;
   
@@ -94,7 +100,11 @@ class ProductionDashboardServer extends EventEmitter {
   private tasks: Map<string, any> = new Map();
   private stories: Map<string, any> = new Map();
   private workflows: Map<string, any> = new Map();
-  private metrics: any = {};
+  private metrics: any = {
+    responseTimes: [] as number[],
+    completedTasks: 0,
+    startTime: Date.now()
+  };
   private systemHealth: SystemHealth;
   
   // Performance monitoring
@@ -168,6 +178,14 @@ class ProductionDashboardServer extends EventEmitter {
         res.on('finish', () => {
           const duration = Date.now() - start;
           this.logRequest(req, res, duration);
+          // Track response times for real metrics
+          if (Array.isArray(this.metrics.responseTimes)) {
+            this.metrics.responseTimes.push(duration);
+            // Keep only last 1000
+            if (this.metrics.responseTimes.length > 1000) {
+              this.metrics.responseTimes.shift();
+            }
+          }
         });
         next();
       } else {
@@ -261,11 +279,6 @@ class ProductionDashboardServer extends EventEmitter {
         error: 'Internal server error',
         requestId: this.generateRequestId()
       });
-    });
-
-    // Unhandled promise rejections
-    process.on('unhandledRejection', (reason, promise) => {
-      this.logError('Unhandled rejection', new Error(String(reason)));
     });
   }
 
@@ -434,8 +447,9 @@ class ProductionDashboardServer extends EventEmitter {
 
     demoAgents.forEach(agent => this.agents.set(agent.id, agent));
     
-    // Initialize metrics
+    // Initialize metrics base values
     this.metrics = {
+      ...this.metrics,
       cpu: 0.35,
       memory: 0.62,
       activeAgents: 3,
@@ -443,7 +457,7 @@ class ProductionDashboardServer extends EventEmitter {
       tasksProcessed: 852,
       averageResponseTime: 2341,
       successRate: 0.96,
-      throughput: 15.7, // tasks per minute
+      throughput: 15.7,
       errorRate: 0.04
     };
   }
@@ -473,20 +487,23 @@ class ProductionDashboardServer extends EventEmitter {
   private collectMetrics(): void {
     const resourceUsage = this.getResourceUsage();
     
+    const completedCount = Array.from(this.tasks.values()).filter(t => t.status === 'completed').length;
+    this.metrics.completedTasks = completedCount;
+
     const newMetrics = {
       timestamp: new Date().toISOString(),
-      cpu: resourceUsage.cpu.percentage,
+      cpu: resourceUsage.cpu.usage,
       memory: resourceUsage.memory.percentage,
       activeAgents: Array.from(this.agents.values()).filter(a => a.status === 'active').length,
       queueDepth: Array.from(this.tasks.values()).filter(t => t.status === 'pending').length,
-      tasksProcessed: Array.from(this.tasks.values()).filter(t => t.status === 'completed').length,
+      tasksProcessed: completedCount,
       averageResponseTime: this.calculateAverageResponseTime(),
       successRate: this.calculateSuccessRate(),
       throughput: this.calculateThroughput(),
       errorRate: this.calculateErrorRate()
     };
 
-    this.metrics = newMetrics;
+    this.metrics = { ...this.metrics, ...newMetrics };
     this.metricsHistory.push({ timestamp: newMetrics.timestamp, data: newMetrics });
     
     // Keep only last 1000 metrics (about 83 minutes at 5-second intervals)
@@ -500,29 +517,27 @@ class ProductionDashboardServer extends EventEmitter {
 
   private getResourceUsage(): ResourceUsage {
     const cpus = os.cpus();
+    const cpuUsage = cpus.reduce((acc, cpu) => {
+      const total = Object.values(cpu.times).reduce((a, b) => a + b, 0);
+      const idle = cpu.times.idle;
+      return acc + (1 - idle / total);
+    }, 0) / cpus.length;
+
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
-    
+    const memUsage = (totalMem - freeMem) / totalMem;
+
     return {
-      cpu: {
-        usage: Math.random() * 0.6 + 0.2, // Simulated 20-80%
-        cores: cpus.length,
-        loadAverage: os.loadavg()
-      },
+      cpu: { usage: cpuUsage, cores: cpus.length },
       memory: {
-        used: totalMem - freeMem,
         total: totalMem,
-        percentage: (totalMem - freeMem) / totalMem
+        used: totalMem - freeMem,
+        free: freeMem,
+        percentage: memUsage,
       },
-      disk: {
-        used: 0, // Would implement actual disk usage
-        total: 0,
-        percentage: Math.random() * 0.5 + 0.3 // Simulated 30-80%
-      },
-      network: {
-        bytesReceived: Math.floor(Math.random() * 1000000),
-        bytesSent: Math.floor(Math.random() * 1000000)
-      }
+      disk: { percentage: 0.5, note: 'disk stats unavailable' }, // placeholder — statfs requires Node 19+
+      network: { bytesReceived: 0, bytesSent: 0, note: 'network stats unavailable' },
+      uptime: os.uptime(),
     };
   }
 
@@ -595,97 +610,96 @@ class ProductionDashboardServer extends EventEmitter {
     });
   }
 
-  // Stub implementations for remaining methods
+  // Stub implementations for remaining methods — returns 501 Not Implemented
   private async handleGetAgent(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleAgentAction(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleGetTasks(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleGetTask(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleUpdateTask(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleDeleteTask(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleGetStories(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleCreateStory(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleUpdateStory(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleGetWorkflows(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleCreateWorkflow(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleWorkflowAction(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleGetPlanningBoard(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleMovePlanningItem(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleGetPerformanceAnalytics(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleGetAgentAnalytics(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
   private async handleGetTasksReport(req: express.Request, res: express.Response): Promise<void> {
-    // Implementation placeholder
+    res.status(501).json({ error: 'Not implemented', endpoint: req.path });
   }
 
-  private handleExecuteTask(socket: any, data: any): void {
-    // Implementation placeholder
+  private handleExecuteTask(socket: any, _data: any): void {
+    socket.emit('error', { error: 'Not implemented' });
   }
 
-  private handleUpdateWorkflowSocket(socket: any, data: any): void {
-    // Implementation placeholder
+  private handleUpdateWorkflowSocket(socket: any, _data: any): void {
+    socket.emit('error', { error: 'Not implemented' });
   }
 
-  private handleDragDrop(socket: any, data: any): void {
-    // Implementation placeholder
+  private handleDragDrop(socket: any, _data: any): void {
+    socket.emit('error', { error: 'Not implemented' });
   }
 
-  private handleSubscribeMetrics(socket: any, data: any): void {
-    // Implementation placeholder
+  private handleSubscribeMetrics(socket: any, _data: any): void {
+    socket.emit('error', { error: 'Not implemented' });
   }
 
   private getLatestMetrics(): any {
     return this.metrics;
   }
 
-  private getMetricsForTimeRange(range: string): any {
-    // Implementation placeholder
+  private getMetricsForTimeRange(_range: string): any {
     return this.metricsHistory;
   }
 
@@ -710,8 +724,9 @@ class ProductionDashboardServer extends EventEmitter {
   }
 
   private calculateAverageResponseTime(): number {
-    // Mock calculation - in production would use actual metrics
-    return Math.random() * 2000 + 1000;
+    if (this.metrics.responseTimes.length === 0) return 0;
+    const sum = this.metrics.responseTimes.reduce((a: number, b: number) => a + b, 0);
+    return sum / this.metrics.responseTimes.length;
   }
 
   private calculateSuccessRate(): number {
@@ -722,15 +737,15 @@ class ProductionDashboardServer extends EventEmitter {
   }
 
   private calculateThroughput(): number {
-    // Tasks per minute - mock calculation
-    return Math.random() * 20 + 10;
+    const elapsed = (Date.now() - (this.metrics.startTime || Date.now())) / 1000;
+    return elapsed > 0 ? this.metrics.completedTasks / elapsed : 0;
   }
 
   private calculateErrorRate(): number {
     return this.errorLog.length / Math.max(this.metricsHistory.length, 1);
   }
 
-  private async persistTask(task: any): Promise<void> {
+  private async persistTask(_task: any): Promise<void> {
     // Persist task to storage
   }
 
@@ -749,10 +764,10 @@ class ProductionDashboardServer extends EventEmitter {
   async start(): Promise<void> {
     return new Promise((resolve) => {
       this.server.listen(3001, '0.0.0.0', () => {
-        console.log('🎨 Canvas CLI Production Dashboard Server running at http://localhost:3001');
-        console.log('🖥️  Dashboard UI available at http://localhost:3002');
-        console.log(`📊 Environment: ${this.systemHealth.environment}`);
-        console.log(`🔧 Version: ${this.systemHealth.version}`);
+        console.log('Canvas CLI Production Dashboard Server running at http://localhost:3001');
+        console.log('Dashboard UI available at http://localhost:3002');
+        console.log(`Environment: ${this.systemHealth.environment}`);
+        console.log(`Version: ${this.systemHealth.version}`);
         resolve();
       });
     });

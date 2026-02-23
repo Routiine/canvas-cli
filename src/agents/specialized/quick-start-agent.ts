@@ -5,13 +5,13 @@
  */
 
 import { BaseAgent } from '../base-agent.js';
-import { AgentConfig } from '../agent-types.js';
+import { AgentConfig, AgentResult } from '../agent-types.js';
 import { spawn } from 'child_process';
 import fs from 'fs-extra';
 import path from 'path';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import ora from 'ora';
+import ora, { Ora } from 'ora';
 
 export interface ProjectConfig {
   name: string;
@@ -42,7 +42,7 @@ export interface SetupResult {
 
 export class QuickStartAgent extends BaseAgent {
   private templates: Map<string, string> = new Map();
-  private spinner: ora.Ora | null = null;
+  private spinner: Ora | null = null;
 
   constructor() {
     super({
@@ -73,11 +73,33 @@ export class QuickStartAgent extends BaseAgent {
   /**
    * Execute quick start setup
    */
-  async execute(input: string): Promise<string> {
-    const config = await this.gatherProjectConfig(input);
-    const result = await this.setupProject(config);
-    
-    return this.generateSetupReport(config, result);
+  async execute(input: any): Promise<AgentResult> {
+    const startTime = Date.now();
+    try {
+      const inputStr = typeof input === 'string' ? input : input.description || JSON.stringify(input);
+      const config = await this.gatherProjectConfig(inputStr);
+      const result = await this.setupProject(config);
+      const report = this.generateSetupReport(config, result);
+
+      return {
+        success: true,
+        output: report,
+        metadata: {
+          duration: Date.now() - startTime,
+          agent: this.config.name
+        }
+      };
+    } catch (error: any) {
+      return {
+        success: false,
+        output: '',
+        error: error.message,
+        metadata: {
+          duration: Date.now() - startTime,
+          agent: this.config.name
+        }
+      };
+    }
   }
 
   /**

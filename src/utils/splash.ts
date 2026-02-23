@@ -1,34 +1,56 @@
 import chalk from 'chalk';
-import gradient from 'gradient-string';
+import { ThemeManager, themes } from '../themes.js';
 
-export function displaySplash(): void {
+function centerText(text: string, width: number): string {
+  const padding = Math.max(0, Math.floor((width - text.length) / 2));
+  return ' '.repeat(padding) + text;
+}
+
+// Get current theme from config or use default
+let currentTheme: ThemeManager = new ThemeManager('slate');
+
+export function setTheme(themeName: string): void {
+  currentTheme = new ThemeManager(themeName);
+}
+
+export function displaySplash(themeName?: string): void {
+  // Use provided theme or current
+  const theme = themeName ? new ThemeManager(themeName) : currentTheme;
+
   // Clear for clean presentation
   console.clear();
-  
-  // Subtle gradient - lighter grays to make it stand out
-  const canvasGradient = gradient(['#909090', '#a0a0a0', '#b0b0b0', '#a0a0a0', '#909090']);
-  
-  console.log('\n');  // Reduced from \n\n
-  
-  // CANVAS in clean, prominent block letters
-  console.log(canvasGradient('     ██████   █████  ███    ██ ██    ██  █████  ███████'));
-  console.log(canvasGradient('    ██       ██   ██ ████   ██ ██    ██ ██   ██ ██     '));
-  console.log(canvasGradient('    ██       ███████ ██ ██  ██ ██    ██ ███████ ███████'));
-  console.log(canvasGradient('    ██       ██   ██ ██  ██ ██  ██  ██  ██   ██      ██'));
-  console.log(canvasGradient('     ██████  ██   ██ ██   ████   ████   ██   ██ ███████'));
+
+  // Get terminal width for centering
+  const termWidth = process.stdout.columns || 80;
+
+  // CANVAS ASCII art (with proper internal letter alignment)
+  const logoLines = [
+    ' ██████   █████  ███    ██ ██    ██  █████  ███████',
+    '██       ██   ██ ████   ██ ██    ██ ██   ██ ██     ',
+    '██       ███████ ██ ██  ██ ██    ██ ███████ ███████',
+    '██       ██   ██ ██  ██ ██  ██  ██  ██   ██      ██',
+    ' ██████  ██   ██ ██   ████   ████   ██   ██ ███████'
+  ];
+
+  console.log('\n');
+
+  // Center and display logo with theme color
+  for (const line of logoLines) {
+    console.log(theme.primary(centerText(line, termWidth)));
+  }
+
   console.log('');
-  console.log(chalk.hex('#606060')('                    command line interface'));
-  console.log(chalk.hex('#404040')('                            v2.0'));
-  
-  console.log('');  // Reduced from \n
+  console.log(theme.dim(centerText('command line interface', termWidth)));
+  console.log(theme.dim(centerText('v3.0', termWidth)));
+
+  console.log('');
 }
 
 export function displayCompactLogo(): string {
-  // Subtle, minimal
-  return chalk.hex('#808080')('canvas cli');
+  return currentTheme.primary('canvas cli');
 }
 
-export function displayWelcome(): void {
-  displaySplash();
+export function displayWelcome(themeName?: string): void {
+  displaySplash(themeName);
   // No extra spacing - input box appears right after logo
 }

@@ -298,6 +298,58 @@ class ModelManagerSingleton {
   }
 
   /**
+   * Generate a response using the current model via Ollama
+   */
+  async generateResponse(prompt: string, options?: {
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+    systemPrompt?: string;
+    format?: string;
+  }): Promise<string> {
+    const axios = (await import('axios')).default;
+    const { loadConfig } = await import('../config.js');
+
+    const config = loadConfig();
+    const ollamaUrl = config.ollamaUrl || config.ollama?.baseUrl || 'http://localhost:11434';
+    const model = options?.model || this.currentRealModel || config.defaultModel || 'llama3.2:1b';
+
+    try {
+      const messages = [];
+      if (options?.systemPrompt) {
+        messages.push({ role: 'system', content: options.systemPrompt });
+      }
+      messages.push({ role: 'user', content: prompt });
+
+      const response = await axios.post(`${ollamaUrl}/api/chat`, {
+        model,
+        messages,
+        stream: false,
+        options: {
+          temperature: options?.temperature || 0.7,
+          num_predict: options?.maxTokens || 2000
+        }
+      }, { timeout: 120000 });
+
+      const result = response.data.message?.content || response.data.response || '';
+
+      // Record usage
+      if (response.data.eval_count) {
+        this.recordUsage({
+          inputTokens: response.data.prompt_eval_count || 0,
+          outputTokens: response.data.eval_count || 0,
+          totalTokens: (response.data.prompt_eval_count || 0) + (response.data.eval_count || 0)
+        });
+      }
+
+      return result;
+    } catch (error: any) {
+      console.error('Model generation error:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Get recommended models for a specific use case
    */
   getRecommendedModels(criteria: {
@@ -439,6 +491,9 @@ class ModelManagerSingleton {
     return this.sessions.get(modelName)!;
   }
 }
+
+// Export the class for type usage
+export { ModelManagerSingleton };
 
 // Export singleton instance
 export const ModelManager = new ModelManagerSingleton();

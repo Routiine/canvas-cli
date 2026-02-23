@@ -248,69 +248,56 @@ export const statsCommand: CanvasCommand = {
   description: 'Display comprehensive session statistics and system metrics',
   action: async () => {
     console.log(chalk.cyan.bold('\n📊 Canvas CLI Session Statistics\n'));
-    
+
+    const memUsage = process.memoryUsage();
+    const uptimeSec = Math.round(process.uptime());
     const stats = {
       session: {
-        startTime: new Date().toISOString(),
-        duration: Math.round(process.uptime()),
-        commands: 42, // Would be tracked in actual implementation
-        modelsUsed: ['gpt-oss:20b', 'codellama:latest'],
-        currentModel: 'gpt-oss:20b'
+        startTime: new Date(Date.now() - process.uptime() * 1000).toISOString(),
+        duration: uptimeSec,
+        commands: 'N/A (tracking not yet implemented)',
+        currentModel: process.env.CANVAS_MODEL || process.env.ANTHROPIC_MODEL || 'not configured',
       },
       performance: {
-        memoryUsage: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-        cpuUsage: Math.round(process.cpuUsage().user / 1000),
-        responseTimes: {
-          avg: '1.2s',
-          min: '0.3s',
-          max: '4.1s'
-        }
+        memoryUsageMB: Math.round(memUsage.heapUsed / 1024 / 1024),
+        memoryTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024),
+        cpuUserMs: Math.round(process.cpuUsage().user / 1000),
+        nodeVersion: process.version,
       },
       tools: {
-        totalAvailable: 45,
-        mcpServers: 3,
-        mostUsed: ['read_file', 'sentient_analyze', 'plan_execute'],
-        successRate: '98.5%'
+        note: 'Tool usage tracking not yet implemented',
       },
-      features: {
-        parallelTasks: 12,
-        plansCrafted: 5,
-        workflowsRun: 8,
-        filesProcessed: 156,
-        gitTreesGenerated: 3
-      }
     };
 
     console.log(chalk.green.bold('🚀 Session Overview:'));
+    console.log(chalk.gray(`  Started: ${stats.session.startTime}`));
     console.log(chalk.gray(`  Duration: ${Math.floor(stats.session.duration / 60)}m ${stats.session.duration % 60}s`));
     console.log(chalk.gray(`  Commands Executed: ${stats.session.commands}`));
     console.log(chalk.gray(`  Current Model: ${stats.session.currentModel}`));
-    console.log(chalk.gray(`  Models Used: ${stats.session.modelsUsed.length}`));
 
     console.log(chalk.blue.bold('\n⚡ Performance Metrics:'));
-    console.log(chalk.gray(`  Memory Usage: ${stats.performance.memoryUsage}MB`));
-    console.log(chalk.gray(`  CPU Usage: ${stats.performance.cpuUsage}ms`));
-    console.log(chalk.gray(`  Avg Response: ${stats.performance.responseTimes.avg}`));
-    console.log(chalk.gray(`  Success Rate: ${stats.tools.successRate}`));
+    console.log(chalk.gray(`  Memory Usage: ${stats.performance.memoryUsageMB}MB / ${stats.performance.memoryTotalMB}MB`));
+    console.log(chalk.gray(`  CPU Time: ${stats.performance.cpuUserMs}ms`));
+    console.log(chalk.gray(`  Node.js: ${stats.performance.nodeVersion}`));
 
     console.log(chalk.yellow.bold('\n🛠️ Tools & Integration:'));
-    console.log(chalk.gray(`  Available Tools: ${stats.tools.totalAvailable}`));
-    console.log(chalk.gray(`  MCP Servers: ${stats.tools.mcpServers}`));
-    console.log(chalk.gray(`  Most Used: ${stats.tools.mostUsed.join(', ')}`));
+    console.log(chalk.gray(`  Note: ${stats.tools.note}`));
 
-    console.log(chalk.magenta.bold('\n🎨 Canvas Features Used:'));
-    console.log(chalk.gray(`  Parallel Tasks: ${stats.features.parallelTasks}`));
-    console.log(chalk.gray(`  Plans Created: ${stats.features.plansCrafted}`));
-    console.log(chalk.gray(`  Workflows Run: ${stats.features.workflowsRun}`));
-    console.log(chalk.gray(`  Files Processed: ${stats.features.filesProcessed}`));
-    console.log(chalk.gray(`  Git Trees: ${stats.features.gitTreesGenerated}`));
+    // Real health checks
+    const checks = [
+      { label: 'Node.js', status: true, detail: process.version },
+      {
+        label: 'Memory',
+        status: memUsage.heapUsed < memUsage.heapTotal * 0.9,
+        detail: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB / ${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`
+      },
+    ];
 
     console.log(chalk.cyan.bold('\n📈 System Health:'));
-    console.log(chalk.green('  ✅ All systems operational'));
-    console.log(chalk.green('  ✅ Ollama connection stable'));
-    console.log(chalk.green('  ✅ MCP servers responsive'));
-    console.log(chalk.green('  ✅ Memory usage optimal'));
-    console.log(chalk.green('  ✅ Performance excellent'));
+    for (const check of checks) {
+      const icon = check.status ? chalk.green('✅') : chalk.red('❌');
+      console.log(`  ${icon} ${check.label}: ${check.detail}`);
+    }
   }
 };
 
@@ -420,6 +407,17 @@ export const builtinCommands: CanvasCommand[] = [
   vimCommand,
   themeCommand
 ];
+
+// Export CLI command creators
+export { createChatCommand } from './chat.js';
+export { createModelsCommand } from './models.js';
+export { createContextCommand } from './context-cli.js';
+export { createExportCommand } from './export-cli.js';
+export { createCrawlCommand } from './crawl.js';
+export { createSearchCommand } from './search-cli.js';
+export { createInitCommand } from './init-cli.js';
+export { createToolsCommand } from './tools-cli.js';
+export { createAgentCommand } from './agent-cli.js';
 
 /**
  * Register all builtin commands with Commander

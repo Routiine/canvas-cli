@@ -258,7 +258,7 @@ export class FlowNexusPlatform extends EventEmitter {
   private pipelines: Map<string, DataPipeline> = new Map();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
-  private metricsCollector?: NodeJS.Timer;
+  private metricsCollector?: ReturnType<typeof setInterval>;
 
   constructor(config: FlowNexusConfig) {
     super();

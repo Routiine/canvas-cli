@@ -6,8 +6,133 @@ import { Config } from './types.js';
 const CONFIG_DIR = path.join(os.homedir(), '.canvas-cli');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
-// No defaults! Config starts empty until user configures it
-const emptyConfig: Config = {};
+/**
+ * Safe production defaults
+ */
+const DEFAULT_CONFIG: Config = {
+  ollamaUrl: 'http://localhost:11434',
+  defaultModel: 'llama3.2:1b',
+  theme: 'default',
+  vimMode: false,
+  features: {
+    autoExecute: false,  // IMPORTANT: Require confirmation by default for safety
+    confirmBeforeExecute: true,
+    saveHistory: true,
+    maxHistorySize: 1000,
+    enableTelemetry: false
+  },
+  sandbox: {
+    enabled: false,
+    type: 'none',
+    maxTimeout: 30000,
+    filterEnv: true  // Filter sensitive env vars by default
+  },
+  tools: {
+    fileOperations: true,
+    shellCommands: true,
+    webSearch: true,
+    webFetch: true
+  }
+};
+
+/**
+ * Validation errors collection
+ */
+interface ConfigValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Validate a URL string
+ */
+function isValidUrl(urlString: string): boolean {
+  try {
+    new URL(urlString);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate and merge config with safe defaults
+ */
+function validateConfig(userConfig: any): Config {
+  const config: Config = { ...DEFAULT_CONFIG };
+  const warnings: string[] = [];
+
+  // Merge user config with defaults (user values override defaults)
+  if (userConfig && typeof userConfig === 'object') {
+    // Top-level simple values with URL validation
+    if (typeof userConfig.ollamaUrl === 'string') {
+      if (isValidUrl(userConfig.ollamaUrl)) {
+        config.ollamaUrl = userConfig.ollamaUrl;
+      } else {
+        warnings.push(`Invalid ollamaUrl "${userConfig.ollamaUrl}", using default`);
+      }
+    }
+    if (typeof userConfig.defaultModel === 'string') config.defaultModel = userConfig.defaultModel;
+    if (typeof userConfig.model === 'string') config.model = userConfig.model;
+    if (typeof userConfig.theme === 'string') config.theme = userConfig.theme;
+    if (typeof userConfig.vimMode === 'boolean') config.vimMode = userConfig.vimMode;
+
+    // Ollama nested config with URL validation
+    if (userConfig.ollama && typeof userConfig.ollama === 'object') {
+      let baseUrl = DEFAULT_CONFIG.ollamaUrl!;
+      if (typeof userConfig.ollama.baseUrl === 'string') {
+        if (isValidUrl(userConfig.ollama.baseUrl)) {
+          baseUrl = userConfig.ollama.baseUrl;
+        } else {
+          warnings.push(`Invalid ollama.baseUrl "${userConfig.ollama.baseUrl}", using default`);
+        }
+      }
+      config.ollama = {
+        baseUrl,
+        defaultModel: userConfig.ollama.defaultModel || DEFAULT_CONFIG.defaultModel!,
+        timeout: typeof userConfig.ollama.timeout === 'number'
+          ? Math.min(Math.max(userConfig.ollama.timeout, 1000), 600000) // 1s to 10min
+          : 120000,
+        maxRetries: typeof userConfig.ollama.maxRetries === 'number'
+          ? Math.min(Math.max(userConfig.ollama.maxRetries, 0), 10) // 0 to 10
+          : 3
+      };
+    }
+
+    // Features - be strict about autoExecute (safety critical)
+    if (userConfig.features && typeof userConfig.features === 'object') {
+      config.features = {
+        ...DEFAULT_CONFIG.features,
+        autoExecute: userConfig.features.autoExecute === true, // Only true if explicitly set
+        confirmBeforeExecute: userConfig.features.confirmBeforeExecute !== false,
+        saveHistory: userConfig.features.saveHistory !== false,
+        maxHistorySize: typeof userConfig.features.maxHistorySize === 'number'
+          ? userConfig.features.maxHistorySize : 1000
+      };
+    }
+
+    // Sandbox config
+    if (userConfig.sandbox && typeof userConfig.sandbox === 'object') {
+      config.sandbox = {
+        ...DEFAULT_CONFIG.sandbox,
+        enabled: userConfig.sandbox.enabled === true,
+        type: ['docker', 'podman', 'none'].includes(userConfig.sandbox.type)
+          ? userConfig.sandbox.type : 'none',
+        maxTimeout: typeof userConfig.sandbox.maxTimeout === 'number'
+          ? Math.min(userConfig.sandbox.maxTimeout, 600000) : 30000, // Max 10 min
+        filterEnv: userConfig.sandbox.filterEnv !== false
+      };
+    }
+
+    // Tools config
+    if (userConfig.tools && typeof userConfig.tools === 'object') {
+      config.tools = { ...DEFAULT_CONFIG.tools, ...userConfig.tools };
+    }
+  }
+
+  return config;
+}
 
 export function loadConfig(): Config {
   try {
@@ -15,18 +140,19 @@ export function loadConfig(): Config {
     if (!fs.existsSync(CONFIG_DIR)) {
       fs.mkdirSync(CONFIG_DIR, { recursive: true });
     }
-    
+
     if (fs.existsSync(CONFIG_FILE)) {
       const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
-      // Return exactly what's in the file, no merging with defaults
-      return JSON.parse(data);
+      const userConfig = JSON.parse(data);
+      // Validate and merge with safe defaults
+      return validateConfig(userConfig);
     }
   } catch (error) {
-    console.warn('Error loading config:', error);
+    console.warn('Warning: Error loading config, using defaults:', error);
   }
 
-  // Return empty config - user must configure it
-  return emptyConfig;
+  // Return safe defaults
+  return DEFAULT_CONFIG;
 }
 
 export function saveConfig(config: Partial<Config>): void {

@@ -268,7 +268,7 @@ export class CodeValidator extends EventEmitter {
       for (const [vulnType, pattern] of this.securityPatterns) {
         if (pattern.test(content)) {
           const lines = content.split('\n');
-          const lineNumber = lines.findIndex(line => pattern.test(line)) + 1;
+          const lineNumber = lines.findIndex((line: string) => pattern.test(line)) + 1;
           
           vulnerabilities.push({
             type: vulnType,

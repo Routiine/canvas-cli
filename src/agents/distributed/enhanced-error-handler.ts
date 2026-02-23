@@ -79,7 +79,7 @@ export class EnhancedErrorHandler extends EventEmitter {
   private recoveryStrategies: Map<string, RecoveryStrategy> = new Map();
   private circuitBreakers: Map<string, CircuitBreakerState> = new Map();
   private errorPatterns: Map<string, number> = new Map();
-  private errorMetrics: {
+  private errorMetrics!: {
     total: number;
     byCategory: Record<ErrorCategory, number>;
     bySeverity: Record<ErrorSeverity, number>;

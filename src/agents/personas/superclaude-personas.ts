@@ -41,14 +41,14 @@ export interface PersonaMetrics {
 
 export abstract class SuperClaudePersona extends BaseAgent {
   protected activation: PersonaActivation;
-  protected metrics: PersonaMetrics;
+  protected personaMetrics: PersonaMetrics;
   protected specializations: string[];
   protected contextHistory: PersonaContext[] = [];
 
   constructor(config: AgentConfig, activation: PersonaActivation) {
     super(config);
     this.activation = activation;
-    this.metrics = {
+    this.personaMetrics = {
       activations: 0,
       successRate: 1.0,
       averageResponseTime: 0,
@@ -56,6 +56,11 @@ export abstract class SuperClaudePersona extends BaseAgent {
     };
     this.specializations = [];
   }
+
+  /**
+   * Abstract process method to be implemented by subclasses
+   */
+  abstract process(input: string): Promise<string>;
 
   /**
    * Calculate activation score for this persona based on context
@@ -103,8 +108,8 @@ export abstract class SuperClaudePersona extends BaseAgent {
    * Activate persona with context
    */
   async activate(context: PersonaContext): Promise<void> {
-    this.metrics.activations++;
-    this.metrics.lastActivated = new Date();
+    this.personaMetrics.activations++;
+    this.personaMetrics.lastActivated = new Date();
     this.contextHistory.push(context);
     
     // Keep only last 10 contexts
@@ -123,29 +128,29 @@ export abstract class SuperClaudePersona extends BaseAgent {
   /**
    * Get persona performance metrics
    */
-  getMetrics(): PersonaMetrics {
-    return { ...this.metrics };
+  getPersonaMetrics(): PersonaMetrics {
+    return { ...this.personaMetrics };
   }
 
   /**
    * Update success metrics
    */
   recordSuccess(responseTime: number): void {
-    const total = this.metrics.activations;
-    const currentAvg = this.metrics.averageResponseTime;
+    const total = this.personaMetrics.activations;
+    const currentAvg = this.personaMetrics.averageResponseTime;
     
-    this.metrics.averageResponseTime = 
+    this.personaMetrics.averageResponseTime = 
       (currentAvg * (total - 1) + responseTime) / total;
     
-    this.metrics.successRate = 
-      (this.metrics.successRate * (total - 1) + 1) / total;
+    this.personaMetrics.successRate = 
+      (this.personaMetrics.successRate * (total - 1) + 1) / total;
   }
 
   /**
    * Record user feedback
    */
   recordFeedback(type: 'positive' | 'negative' | 'neutral'): void {
-    this.metrics.feedback[type]++;
+    this.personaMetrics.feedback[type]++;
   }
 }
 
@@ -194,7 +199,7 @@ export class FrontendPersona extends SuperClaudePersona {
     this.logger.info(`Frontend persona activated for ${context.fileType || context.taskType}`);
   }
 
-  async execute(input: string): Promise<string> {
+  async process(input: string): Promise<string> {
     const startTime = Date.now();
     
     const enhancedPrompt = `As a frontend expert, ${input}
@@ -259,7 +264,7 @@ export class BackendPersona extends SuperClaudePersona {
     this.logger.info(`Backend persona activated for ${context.fileType || context.taskType}`);
   }
 
-  async execute(input: string): Promise<string> {
+  async process(input: string): Promise<string> {
     const startTime = Date.now();
     
     const enhancedPrompt = `As a backend expert, ${input}
@@ -325,7 +330,7 @@ export class ArchitectPersona extends SuperClaudePersona {
     this.logger.info(`Architect persona activated for ${context.taskType}`);
   }
 
-  async execute(input: string): Promise<string> {
+  async process(input: string): Promise<string> {
     const startTime = Date.now();
     
     const enhancedPrompt = `As a software architect, ${input}
@@ -390,7 +395,7 @@ export class AnalyzerPersona extends SuperClaudePersona {
     this.logger.info(`Analyzer persona activated for code review`);
   }
 
-  async execute(input: string): Promise<string> {
+  async process(input: string): Promise<string> {
     const startTime = Date.now();
     
     const enhancedPrompt = `As a code analyzer, perform detailed analysis: ${input}
@@ -457,7 +462,7 @@ export class SecurityPersona extends SuperClaudePersona {
     this.logger.info(`Security persona activated for security analysis`);
   }
 
-  async execute(input: string): Promise<string> {
+  async process(input: string): Promise<string> {
     const startTime = Date.now();
     
     const enhancedPrompt = `As a security expert, ${input}
@@ -525,7 +530,7 @@ export class QAPersona extends SuperClaudePersona {
     this.logger.info(`QA persona activated for testing tasks`);
   }
 
-  async execute(input: string): Promise<string> {
+  async process(input: string): Promise<string> {
     const startTime = Date.now();
     
     const enhancedPrompt = `As a QA engineer, ${input}
@@ -590,7 +595,7 @@ export class PerformancePersona extends SuperClaudePersona {
     this.logger.info(`Performance persona activated for optimization`);
   }
 
-  async execute(input: string): Promise<string> {
+  async process(input: string): Promise<string> {
     const startTime = Date.now();
     
     const enhancedPrompt = `As a performance expert, ${input}
@@ -657,7 +662,7 @@ export class RefactorerPersona extends SuperClaudePersona {
     this.logger.info(`Refactorer persona activated for code improvement`);
   }
 
-  async execute(input: string): Promise<string> {
+  async process(input: string): Promise<string> {
     const startTime = Date.now();
     
     const enhancedPrompt = `As a refactoring expert, ${input}
@@ -724,7 +729,7 @@ export class MentorPersona extends SuperClaudePersona {
     this.logger.info(`Mentor persona activated for education`);
   }
 
-  async execute(input: string): Promise<string> {
+  async process(input: string): Promise<string> {
     const startTime = Date.now();
     
     const enhancedPrompt = `As a technical mentor, ${input}
@@ -826,14 +831,14 @@ export class SuperClaudeManager extends EventEmitter {
     this.emit('persona-activated', {
       role,
       context,
-      metrics: persona.getMetrics()
+      metrics: persona.getPersonaMetrics()
     });
   }
 
   /**
    * Execute with auto persona selection
    */
-  async execute(input: string, context?: PersonaContext): Promise<string> {
+  async process(input: string, context?: PersonaContext): Promise<string> {
     // Extract context from input if not provided
     if (!context) {
       context = this.extractContext(input);
@@ -846,7 +851,7 @@ export class SuperClaudeManager extends EventEmitter {
     }
 
     // Execute with selected persona
-    return await persona.execute(input);
+    return await persona.process(input);
   }
 
   /**
@@ -900,7 +905,7 @@ export class SuperClaudeManager extends EventEmitter {
     const metrics = new Map<string, PersonaMetrics>();
     
     for (const [role, persona] of this.personas) {
-      metrics.set(role, persona.getMetrics());
+      metrics.set(role, persona.getPersonaMetrics());
     }
     
     return metrics;

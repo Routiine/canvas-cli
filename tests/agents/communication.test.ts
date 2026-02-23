@@ -92,7 +92,8 @@ describe('Cross-Agent Communication System', () => {
         CommunicationAgentFactory.createAgent('listener2', ['listening'])
       ];
       
-      // Subscribe to test channel
+      // Create and subscribe to test channel
+      communicationHub.createChannel('test-channel', 'Test broadcast channel');
       listeners.forEach(listener => {
         communicationHub.subscribeToChannel(listener.agentId, 'test-channel');
       });
@@ -175,10 +176,10 @@ describe('Cross-Agent Communication System', () => {
         important: 'This should be remembered'
       });
       
-      // Check memory
+      // Check memory - sendMessage stores entries with type 'communication'
       const memory = agent.memory;
-      const recalled = await memory.recall('important', 1);
-      
+      const recalled = await memory.recall({ type: 'communication' }, 1);
+
       expect(recalled.length).toBeGreaterThan(0);
     });
 
@@ -189,7 +190,7 @@ describe('Cross-Agent Communication System', () => {
       // Agent1 learns something
       await agent1.memory.remember({
         fact: 'The project uses TypeScript'
-      }, 'knowledge');
+      }, 'context');
       
       // Agent1 shares with Agent2
       await agent1.sendMessage('agent2', {

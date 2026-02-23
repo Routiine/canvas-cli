@@ -229,7 +229,9 @@ export class AgentCommunicationHub extends EventEmitter {
       priority,
       content,
       metadata: {
-        conversationId: `channel:${channelName}`
+        conversationId: `channel:${channelName}`,
+        requiresAck: false,
+        encrypted: false
       }
     };
 
@@ -265,10 +267,9 @@ export class AgentCommunicationHub extends EventEmitter {
     const message = {
       ...initialMessage,
       metadata: {
-        ...initialMessage.metadata,
         conversationId
       }
-    };
+    } as AgentMessage;
 
     await this.sendMessage(message);
 
@@ -312,7 +313,8 @@ export class AgentCommunicationHub extends EventEmitter {
         },
         metadata: {
           conversationId,
-          requiresAck: true
+          requiresAck: true,
+          encrypted: false
         }
       };
 
@@ -433,9 +435,11 @@ export class AgentCommunicationHub extends EventEmitter {
     // Store in agent's memory if available
     if (agent.memory) {
       await agent.memory.remember(message, 'communication', {
-        conversationId: message.metadata?.conversationId,
-        from: message.from,
-        priority: message.priority
+        tags: [
+          `conversation:${message.metadata?.conversationId || 'none'}`,
+          `from:${message.from}`,
+          `priority:${message.priority || 'normal'}`
+        ]
       });
     }
 

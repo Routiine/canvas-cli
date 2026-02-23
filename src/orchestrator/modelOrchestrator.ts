@@ -278,7 +278,7 @@ export class ModelOrchestrator {
 
     if (candidates.length === 0) {
       return {
-        primary: this.config.defaultModel,
+        primary: this.config.defaultModel || 'llama3.2',
         alternatives: [],
         reasoning: 'No model data available, using default model',
         confidence: 0.3,
@@ -414,6 +414,13 @@ export class ModelOrchestrator {
       .map(name => this.models.get(name))
       .filter(Boolean) as ModelCapabilities[];
 
+    if (models.length === 0) {
+      return {
+        comparison: [],
+        recommendation: 'No matching models found. Try running /orchestrator to discover available models first.'
+      };
+    }
+
     const comparison = models.map(model => ({
       name: model.name,
       size: model.size,
@@ -431,7 +438,7 @@ export class ModelOrchestrator {
       const currentScore = Object.values(current.performance).reduce((sum, val) => sum + val, 0);
       const bestScore = Object.values(best.performance).reduce((sum, val) => sum + val, 0);
       return currentScore > bestScore ? current : best;
-    });
+    }, models[0]);
 
     return {
       comparison,

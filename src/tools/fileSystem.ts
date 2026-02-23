@@ -4,6 +4,15 @@ import path from 'path';
 import { glob } from 'glob';
 import chalk from 'chalk';
 
+function validatePath(filePath: string): void {
+  const allowedRoot = path.resolve(process.cwd());
+  const resolved = path.resolve(filePath);
+  if (resolved !== allowedRoot && !resolved.startsWith(allowedRoot + path.sep)) {
+    throw new Error(`Access denied: path '${filePath}' is outside the workspace`);
+  }
+}
+
+
 export class ReadFileTool extends BaseTool {
   name = 'read_file';
   description = 'Read the contents of a file';
@@ -14,6 +23,7 @@ export class ReadFileTool extends BaseTool {
   async execute(params: { path: string }): Promise<string> {
     try {
       const filePath = path.resolve(params.path);
+      validatePath(filePath);
       
       // Check if file exists
       if (!await fs.pathExists(filePath)) {
@@ -43,6 +53,7 @@ export class WriteFileTool extends BaseTool {
   async execute(params: { path: string; content: string }): Promise<string> {
     try {
       const filePath = path.resolve(params.path);
+      validatePath(filePath);
       await fs.ensureDir(path.dirname(filePath));
       await fs.writeFile(filePath, params.content, 'utf-8');
       console.log(chalk.green(`✓ Wrote file: ${params.path} (${params.content.length} chars)`));
@@ -56,25 +67,127 @@ export class WriteFileTool extends BaseTool {
 
 export class EditFileTool extends BaseTool {
   name = 'edit_file';
-  description = 'Edit a file by replacing text';
+  description = 'Edit a file using exact string replacement (like Claude Code). Supports old_string/new_string replacement, line-based editing, or replace_all mode.';
   parameters = {
     path: { type: 'string', description: 'File path to edit' },
-    search: { type: 'string', description: 'Text to search for' },
-    replace: { type: 'string', description: 'Text to replace with' }
+    old_string: { type: 'string', description: 'Exact text to find and replace (must be unique in file unless replace_all is true)' },
+    new_string: { type: 'string', description: 'Text to replace with (can be empty to delete)' },
+    replace_all: { type: 'boolean', description: 'Replace all occurrences instead of just first (default: false)' },
+    // Legacy support
+    search: { type: 'string', description: '[Legacy] Alias for old_string' },
+    replace: { type: 'string', description: '[Legacy] Alias for new_string' },
+    // Line-based editing
+    start_line: { type: 'number', description: 'Start line number for line-based editing (1-indexed)' },
+    end_line: { type: 'number', description: 'End line number for line-based editing (inclusive)' },
+    insert_line: { type: 'number', description: 'Line number to insert new content after (0 for beginning)' }
   };
   requiresConfirmation = true;
 
-  async execute(params: { path: string; search: string; replace: string }): Promise<void> {
+  async execute(params: {
+    path: string;
+    old_string?: string;
+    new_string?: string;
+    replace_all?: boolean;
+    search?: string;
+    replace?: string;
+    start_line?: number;
+    end_line?: number;
+    insert_line?: number;
+  }): Promise<string> {
     const filePath = path.resolve(params.path);
-    let content = await fs.readFile(filePath, 'utf-8');
-    
-    if (!content.includes(params.search)) {
-      throw new Error(`Text "${params.search}" not found in file`);
+    validatePath(filePath);
+
+    // Check if file exists
+    if (!await fs.pathExists(filePath)) {
+      throw new Error(`File not found: ${params.path}`);
     }
-    
-    content = content.replace(params.search, params.replace);
+
+    let content = await fs.readFile(filePath, 'utf-8');
+    const originalContent = content;
+
+    // Support legacy parameters
+    const oldString = params.old_string || params.search;
+    const newString = params.new_string ?? params.replace ?? '';
+
+    // Line-based editing mode
+    if (params.start_line !== undefined && params.end_line !== undefined) {
+      const lines = content.split('\n');
+      const startIdx = params.start_line - 1;
+      const endIdx = params.end_line;
+
+      if (startIdx < 0 || endIdx > lines.length || startIdx >= endIdx) {
+        throw new Error(`Invalid line range: ${params.start_line}-${params.end_line} (file has ${lines.length} lines)`);
+      }
+
+      const removedLines = lines.slice(startIdx, endIdx);
+      const newLines = newString ? newString.split('\n') : [];
+      lines.splice(startIdx, endIdx - startIdx, ...newLines);
+      content = lines.join('\n');
+
+      await fs.writeFile(filePath, content, 'utf-8');
+      console.log(chalk.green(`✓ Edited lines ${params.start_line}-${params.end_line} in ${params.path}`));
+      console.log(chalk.dim(`  Removed ${removedLines.length} lines, inserted ${newLines.length} lines`));
+      return `Edited lines ${params.start_line}-${params.end_line}: removed ${removedLines.length} lines, inserted ${newLines.length} lines`;
+    }
+
+    // Insert mode (insert after line N)
+    if (params.insert_line !== undefined) {
+      const lines = content.split('\n');
+      const insertIdx = params.insert_line;
+
+      if (insertIdx < 0 || insertIdx > lines.length) {
+        throw new Error(`Invalid insert line: ${params.insert_line} (file has ${lines.length} lines)`);
+      }
+
+      const newLines = newString ? newString.split('\n') : [];
+      lines.splice(insertIdx, 0, ...newLines);
+      content = lines.join('\n');
+
+      await fs.writeFile(filePath, content, 'utf-8');
+      console.log(chalk.green(`✓ Inserted ${newLines.length} lines after line ${params.insert_line} in ${params.path}`));
+      return `Inserted ${newLines.length} lines after line ${params.insert_line}`;
+    }
+
+    // String replacement mode (Claude Code style)
+    if (!oldString) {
+      throw new Error('Either old_string/search or line numbers must be provided');
+    }
+
+    // Count occurrences
+    const occurrences = content.split(oldString).length - 1;
+
+    if (occurrences === 0) {
+      // Show helpful context for debugging
+      const preview = oldString.length > 100 ? oldString.substring(0, 100) + '...' : oldString;
+      throw new Error(`Text not found in file. Looking for:\n"${preview}"\n\nMake sure the text matches exactly including whitespace and line endings.`);
+    }
+
+    if (occurrences > 1 && !params.replace_all) {
+      throw new Error(`Found ${occurrences} occurrences of the text. Use replace_all: true to replace all, or provide more context to make the match unique.`);
+    }
+
+    // Perform replacement
+    if (params.replace_all) {
+      content = content.split(oldString).join(newString);
+      console.log(chalk.green(`✓ Replaced ${occurrences} occurrences in ${params.path}`));
+    } else {
+      content = content.replace(oldString, newString);
+      console.log(chalk.green(`✓ Edited file: ${params.path}`));
+    }
+
+    // Show diff preview
+    const oldLines = originalContent.split('\n').length;
+    const newLines = content.split('\n').length;
+    const lineDiff = newLines - oldLines;
+    if (lineDiff !== 0) {
+      console.log(chalk.dim(`  Line count: ${oldLines} → ${newLines} (${lineDiff > 0 ? '+' : ''}${lineDiff})`));
+    }
+
     await fs.writeFile(filePath, content, 'utf-8');
-    console.log(chalk.green(`✓ Edited file: ${params.path}`));
+
+    return params.replace_all
+      ? `Replaced ${occurrences} occurrences in ${params.path}`
+      : `Successfully edited ${params.path}`;
   }
 }
 
@@ -88,6 +201,7 @@ export class ListDirectoryTool extends BaseTool {
 
   async execute(params: { path: string; recursive?: boolean }): Promise<string[]> {
     const dirPath = path.resolve(params.path || '.');
+    validatePath(dirPath);
     
     if (params.recursive) {
       const pattern = path.join(dirPath, '**', '*');
@@ -112,6 +226,7 @@ export class DeleteFileTool extends BaseTool {
 
   async execute(params: { path: string }): Promise<void> {
     const filePath = path.resolve(params.path);
+    validatePath(filePath);
     await fs.remove(filePath);
     console.log(chalk.green(`✓ Deleted: ${params.path}`));
   }
@@ -126,7 +241,11 @@ export class SearchFilesTool extends BaseTool {
   };
 
   async execute(params: { pattern: string; content?: string }): Promise<any[]> {
-    const files = await glob(params.pattern);
+    const files = (await glob(params.pattern, { cwd: process.cwd() })).filter(file => {
+      const allowedRoot = path.resolve(process.cwd());
+      const resolved = path.resolve(file);
+      return resolved === allowedRoot || resolved.startsWith(allowedRoot + path.sep);
+    });
     const results = [];
 
     for (const file of files) {
@@ -150,5 +269,155 @@ export class SearchFilesTool extends BaseTool {
 
     console.log(chalk.green(`✓ Found ${results.length} matching files`));
     return results;
+  }
+}
+
+/**
+ * Advanced grep tool similar to Claude Code's Grep
+ * Supports regex patterns, file type filtering, context lines
+ */
+export class GrepTool extends BaseTool {
+  name = 'grep';
+  description = 'Search for text patterns in files using regex. Returns matching lines with file paths and line numbers.';
+  parameters = {
+    pattern: { type: 'string', description: 'Regex pattern to search for in file contents' },
+    path: { type: 'string', description: 'Directory or file to search in (defaults to current directory)', optional: true },
+    glob_pattern: { type: 'string', description: 'Glob pattern to filter files (e.g., "*.ts", "**/*.js")', optional: true },
+    type: { type: 'string', description: 'File type to search (e.g., "ts", "js", "py")', optional: true },
+    case_insensitive: { type: 'boolean', description: 'Case insensitive search', optional: true },
+    context_lines: { type: 'number', description: 'Number of context lines to show before and after match', optional: true },
+    max_results: { type: 'number', description: 'Maximum number of results to return (default: 100)', optional: true }
+  };
+
+  private readonly FILE_TYPE_EXTENSIONS: Record<string, string[]> = {
+    'ts': ['.ts', '.tsx'],
+    'js': ['.js', '.jsx', '.mjs', '.cjs'],
+    'py': ['.py'],
+    'java': ['.java'],
+    'go': ['.go'],
+    'rust': ['.rs'],
+    'c': ['.c', '.h'],
+    'cpp': ['.cpp', '.cc', '.cxx', '.hpp', '.hh'],
+    'css': ['.css', '.scss', '.sass', '.less'],
+    'html': ['.html', '.htm'],
+    'json': ['.json'],
+    'yaml': ['.yaml', '.yml'],
+    'md': ['.md', '.markdown'],
+    'sh': ['.sh', '.bash', '.zsh'],
+    'sql': ['.sql']
+  };
+
+  async execute(params: {
+    pattern: string;
+    path?: string;
+    glob_pattern?: string;
+    type?: string;
+    case_insensitive?: boolean;
+    context_lines?: number;
+    max_results?: number;
+  }): Promise<{ matches: any[]; summary: string }> {
+    const {
+      pattern,
+      path: searchPath = '.',
+      glob_pattern,
+      type: fileType,
+      case_insensitive = false,
+      context_lines = 0,
+      max_results = 100
+    } = params;
+
+    const results: Array<{
+      file: string;
+      line: number;
+      content: string;
+      context_before?: string[];
+      context_after?: string[];
+    }> = [];
+
+    try {
+      // Build regex
+      const flags = case_insensitive ? 'gi' : 'g';
+      const regex = new RegExp(pattern, flags);
+
+      // Determine files to search
+      let filesToSearch: string[] = [];
+      const resolvedPath = path.resolve(searchPath);
+
+      if (glob_pattern) {
+        filesToSearch = await glob(glob_pattern, {
+          cwd: resolvedPath,
+          absolute: true,
+          nodir: true,
+          ignore: ['**/node_modules/**', '**/.git/**']
+        });
+      } else if ((await fs.stat(resolvedPath)).isDirectory()) {
+        // Search all text files in directory
+        const defaultPattern = fileType
+          ? `**/*{${this.FILE_TYPE_EXTENSIONS[fileType]?.join(',') || '.' + fileType}}`
+          : '**/*';
+        filesToSearch = await glob(defaultPattern, {
+          cwd: resolvedPath,
+          absolute: true,
+          nodir: true,
+          ignore: ['**/node_modules/**', '**/.git/**', '**/dist/**', '**/build/**']
+        });
+      } else {
+        filesToSearch = [resolvedPath];
+      }
+
+      // Filter by file type if specified
+      if (fileType && this.FILE_TYPE_EXTENSIONS[fileType]) {
+        const extensions = this.FILE_TYPE_EXTENSIONS[fileType];
+        filesToSearch = filesToSearch.filter(f =>
+          extensions.some(ext => f.endsWith(ext))
+        );
+      }
+
+      // Search files
+      for (const file of filesToSearch) {
+        if (results.length >= max_results) break;
+
+        try {
+          const content = await fs.readFile(file, 'utf-8');
+          const lines = content.split('\n');
+
+          for (let i = 0; i < lines.length; i++) {
+            if (results.length >= max_results) break;
+
+            const line = lines[i];
+            if (regex.test(line)) {
+              const result: any = {
+                file: path.relative(process.cwd(), file),
+                line: i + 1,
+                content: line.trim()
+              };
+
+              // Add context if requested
+              if (context_lines > 0) {
+                result.context_before = lines
+                  .slice(Math.max(0, i - context_lines), i)
+                  .map(l => l.trim());
+                result.context_after = lines
+                  .slice(i + 1, Math.min(lines.length, i + 1 + context_lines))
+                  .map(l => l.trim());
+              }
+
+              results.push(result);
+              // Reset regex lastIndex for global flag
+              regex.lastIndex = 0;
+            }
+          }
+        } catch {
+          // Skip binary/unreadable files
+        }
+      }
+
+      const summary = `Found ${results.length} matches${results.length >= max_results ? ' (truncated)' : ''} in ${filesToSearch.length} files`;
+      console.log(chalk.green(`✓ ${summary}`));
+
+      return { matches: results, summary };
+    } catch (error: any) {
+      throw new Error(`Grep failed: ${error.message}`);
+    }
   }
 }

@@ -542,12 +542,67 @@ class WorkflowExecution extends EventEmitter {
   }
   
   private evaluateCondition(condition: string): boolean {
-    // Simple condition evaluation - in production, use a proper expression evaluator
+    // Safe condition evaluation without eval()
+    // Supports: ==, !=, >, <, >=, <=, &&, ||, true, false, numbers, strings
     try {
-      return eval(condition);
+      // First, interpolate variables in the condition
+      const interpolated = this.interpolateVariables(condition);
+
+      // Parse simple boolean conditions
+      if (interpolated.trim() === 'true') return true;
+      if (interpolated.trim() === 'false') return false;
+
+      // Handle compound conditions with && and ||
+      if (interpolated.includes('&&')) {
+        return interpolated.split('&&').every(part => this.evaluateCondition(part.trim()));
+      }
+      if (interpolated.includes('||')) {
+        return interpolated.split('||').some(part => this.evaluateCondition(part.trim()));
+      }
+
+      // Parse comparison operators
+      const operators = ['===', '!==', '==', '!=', '>=', '<=', '>', '<'];
+      for (const op of operators) {
+        if (interpolated.includes(op)) {
+          const [left, right] = interpolated.split(op).map(s => s.trim());
+          const leftVal = this.parseValue(left);
+          const rightVal = this.parseValue(right);
+
+          switch (op) {
+            case '===':
+            case '==': return leftVal === rightVal;
+            case '!==':
+            case '!=': return leftVal !== rightVal;
+            case '>': return Number(leftVal) > Number(rightVal);
+            case '<': return Number(leftVal) < Number(rightVal);
+            case '>=': return Number(leftVal) >= Number(rightVal);
+            case '<=': return Number(leftVal) <= Number(rightVal);
+          }
+        }
+      }
+
+      // If no operator found, treat as boolean
+      return Boolean(this.parseValue(interpolated.trim()));
     } catch {
       return false;
     }
+  }
+
+  private parseValue(value: string): string | number | boolean {
+    // Remove quotes from strings
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      return value.slice(1, -1);
+    }
+    // Parse numbers
+    if (!isNaN(Number(value))) {
+      return Number(value);
+    }
+    // Parse booleans
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    // Return as string
+    return value;
   }
   
   private interpolateVariables(text: string): string {

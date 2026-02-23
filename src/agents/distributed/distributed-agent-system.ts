@@ -296,9 +296,11 @@ export class DistributedAgentSystem extends EventEmitter {
         
         // Store in memory
         await this.memory.remember(task, 'task_execution', {
-          taskId: task.id,
-          agentId: agent.agentId,
-          duration: Date.parse(task.completedAt) - Date.parse(task.startedAt!)
+          tags: [
+            `taskId:${task.id}`,
+            `agentId:${agent.agentId}`,
+            `duration:${Date.parse(task.completedAt) - Date.parse(task.startedAt!)}`
+          ]
         });
         
         this.emit('task:completed', task);
@@ -758,10 +760,16 @@ class DistributedAgent extends EventEmitter {
 
   async executeTask(task: DistributedTask): Promise<any> {
     if (this.agentInstance) {
-      // Use actual agent instance
-      return await this.agentInstance.processRequest(task.payload);
+      // Use actual agent instance - execute the task via public interface
+      const agent = this.agentInstance as any;
+      if (typeof agent.processRequest === 'function') {
+        return await agent.processRequest(task.payload);
+      }
+      if (typeof agent.execute === 'function') {
+        return await agent.execute(task.payload);
+      }
     }
-    
+
     // Simulated execution
     return { success: true, taskId: task.id };
   }

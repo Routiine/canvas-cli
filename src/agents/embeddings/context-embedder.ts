@@ -70,13 +70,13 @@ export interface EnrichedStory {
  * Context Embedder Implementation
  */
 export class ContextEmbedder extends EventEmitter {
-  private modelManager: ModelManager;
+  private modelManager: typeof ModelManager;
   private contextCache: Map<string, EmbeddingContext> = new Map();
   private embeddingCache: Map<string, number[]> = new Map();
   
   constructor() {
     super();
-    this.modelManager = new ModelManager();
+    this.modelManager = ModelManager;
   }
   
   async initialize(): Promise<void> {
