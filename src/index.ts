@@ -514,6 +514,99 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
         limit: opts.limit,
       }));
     });
+
+  // A/B Testing (canvas ab create|run|status|list|winner|compare|delete|export)
+  const abCmd = program.command('ab').description('A/B testing for models and prompts');
+
+  abCmd
+    .command('create')
+    .description('Create a new A/B test')
+    .requiredOption('--name <name>', 'Test name')
+    .requiredOption('--type <type>', 'Test type: model, prompt, or combined')
+    .requiredOption('--variants <json>', 'Variants as JSON array')
+    .option('--split <split>', 'Traffic split (comma-separated)')
+    .option('--metrics <metrics>', 'Eval metrics', 'quality,speed,cost')
+    .action(async (opts: any) => {
+      const { getABTestEngine } = await import('./ab/ab-testing.js');
+      const engine = getABTestEngine();
+      const variants = JSON.parse(opts.variants);
+      const trafficSplit = opts.split ? opts.split.split(',').map(Number) : undefined;
+      const metrics = opts.metrics.split(',');
+      const test = engine.createTest({ name: opts.name, type: opts.type, variants, trafficSplit, evalCriteria: { autoScore: true, userRating: false, metrics } });
+      console.log(chalk.green(`A/B test created: ${test.id}`));
+      console.log(`  Name: ${test.name} | Type: ${test.type} | Variants: ${test.variants.map((v: any) => v.name).join(' vs ')}`);
+    });
+
+  abCmd
+    .command('run <test-id>')
+    .description('Run prompt(s) through all variants')
+    .option('--prompt <text>', 'Single prompt')
+    .option('--prompts <file>', 'File with one prompt per line')
+    .action(async (testId: string, opts: any) => {
+      const { getABTestEngine } = await import('./ab/ab-testing.js');
+      const engine = getABTestEngine();
+      const prompts: string[] = [];
+      if (opts.prompt) prompts.push(opts.prompt);
+      else if (opts.prompts) {
+        const fsMod = await import('fs');
+        prompts.push(...fsMod.readFileSync(opts.prompts, 'utf-8').split('\n').filter(Boolean));
+      } else { console.error('Provide --prompt or --prompts'); return; }
+      for (const p of prompts) {
+        console.log(chalk.gray(`Prompt: ${p.slice(0, 80)}...`));
+        const results = await engine.runSingle(testId, p);
+        for (const r of results) {
+          console.log(`  ${r.variantName.padEnd(20)} score: ${r.score.toFixed(1).padStart(5)}  latency: ${r.latencyMs}ms  cost: $${r.costUsd.toFixed(4)}`);
+        }
+      }
+    });
+
+  abCmd.command('status <test-id>').description('Show test statistics').action(async (testId: string) => {
+    const { getABTestEngine } = await import('./ab/ab-testing.js');
+    const engine = getABTestEngine();
+    const test = engine.getTest(testId);
+    if (!test) { console.error('Test not found'); return; }
+    const stats = engine.getStats(testId);
+    console.log(chalk.bold(`\n${test.name} [${test.status}]`));
+    for (const s of stats) console.log(`  ${s.variantName.padEnd(20)} runs:${s.runs} score:${s.avgScore.toFixed(1)} latency:${s.avgLatencyMs.toFixed(0)}ms cost:$${s.avgCostUsd.toFixed(4)} win:${(s.winRate*100).toFixed(0)}%`);
+  });
+
+  abCmd.command('list').description('List all A/B tests').action(async () => {
+    const { getABTestEngine } = await import('./ab/ab-testing.js');
+    const tests = getABTestEngine().listTests();
+    if (!tests.length) { console.log('No A/B tests.'); return; }
+    for (const t of tests) console.log(`  ${t.id.padEnd(14)} [${t.status}] ${t.name} — ${t.variants.map((v: any) => v.name).join(' vs ')}`);
+  });
+
+  abCmd.command('winner <test-id>').description('Declare winner').action(async (testId: string) => {
+    const { getABTestEngine } = await import('./ab/ab-testing.js');
+    const winner = getABTestEngine().declareWinner(testId);
+    if (winner) console.log(chalk.green(`Winner: ${winner.variantName} (score: ${winner.avgScore.toFixed(1)}, confidence: ${(winner.confidence*100).toFixed(0)}%)`));
+    else console.error('No results to determine winner');
+  });
+
+  abCmd.command('compare <test-id>').description('Side-by-side comparison').action(async (testId: string) => {
+    const { getABTestEngine } = await import('./ab/ab-testing.js');
+    const comp = getABTestEngine().getLastComparison(testId);
+    for (const c of comp) {
+      console.log(chalk.cyan.bold(`\n── ${c.variantName} (score: ${c.score.toFixed(1)}) ──`));
+      console.log(c.response.slice(0, 500));
+    }
+  });
+
+  abCmd.command('delete <test-id>').description('Delete test').action(async (testId: string) => {
+    const { getABTestEngine } = await import('./ab/ab-testing.js');
+    getABTestEngine().deleteTest(testId);
+    console.log(chalk.green(`Deleted test "${testId}"`));
+  });
+
+  abCmd.command('export <test-id>').description('Export results as JSON').option('-o, --output <file>', 'Output file').action(async (testId: string, opts: any) => {
+    const { getABTestEngine } = await import('./ab/ab-testing.js');
+    const data = getABTestEngine().exportResults(testId);
+    if (!data) { console.error('Test not found'); return; }
+    const json = JSON.stringify(data, null, 2);
+    if (opts.output) { const fsMod = await import('fs'); fsMod.writeFileSync(opts.output, json); console.log(`Exported to ${opts.output}`); }
+    else console.log(json);
+  });
 }
 
 function registerFeatureCommands(program: Command, featureManager: FeatureManager | null): void {
