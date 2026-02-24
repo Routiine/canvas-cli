@@ -3,7 +3,7 @@
  * Supports transcription via OpenAI Whisper API or local whisper.cpp.
  */
 
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 
 export interface VoiceConfig {
   provider: 'whisper-api' | 'whisper-local' | 'none';

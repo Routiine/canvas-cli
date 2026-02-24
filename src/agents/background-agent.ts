@@ -5,7 +5,7 @@
  */
 
 import { spawn } from 'child_process';
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 import * as os from 'os';
 

@@ -4,7 +4,7 @@
  * into a format suitable for AI model consumption.
  */
 
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 
 export type InputType = 'image' | 'pdf' | 'text' | 'clipboard' | 'screenshot' | 'url';

@@ -4,7 +4,7 @@
  * and includes them in AI system prompts.
  */
 
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 
 const CONVENTIONS_FILE = '.canvas/conventions.md';

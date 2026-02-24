@@ -73,6 +73,7 @@ export class SessionSharingSystem extends EventEmitter {
       this.cleanupStaleSessions();
       this.cleanupStaleConnections();
     }, SessionSharingSystem.SESSION_CLEANUP_INTERVAL);
+    this.cleanupInterval.unref();
   }
 
   /**

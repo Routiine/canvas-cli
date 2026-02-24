@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 import { errorHandler } from './error-handler.js';
 import { performanceMonitor } from './performance-monitor.js';

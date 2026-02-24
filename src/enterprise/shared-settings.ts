@@ -4,7 +4,7 @@
  * Loaded from .canvas/settings.json in the project root.
  */
 
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 
 export interface SharedSettings {

@@ -3,7 +3,7 @@
  * Uses gitignore-style syntax.
  */
 
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 
 let cachedPatterns: string[] | null = null;

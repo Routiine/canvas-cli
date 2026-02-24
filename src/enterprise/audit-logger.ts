@@ -9,7 +9,7 @@
 import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as os from 'os';
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 
 const DB_PATH = path.join(os.homedir(), '.canvas', 'canvas.db');
 

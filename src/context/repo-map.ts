@@ -4,7 +4,7 @@
  * Uses the existing AST walker / graph storage to extract file→symbol mappings.
  */
 
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 
 export interface RepoMapEntry {

@@ -294,8 +294,10 @@ class PersistentWorkspaceState extends EventEmitter {
       }
 
       return workspaces.sort((a, b) => b.metadata.updated - a.metadata.updated);
-    } catch (error) {
-      this.emit('error', { operation: 'list', error });
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') {
+        this.emit('error', { operation: 'list', error });
+      }
       return [];
     }
   }

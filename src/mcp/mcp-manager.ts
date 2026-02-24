@@ -1,12 +1,9 @@
-// @ts-ignore
-import { Client } from '@modelcontextprotocol/sdk';
-// @ts-ignore
-import { StdioTransport, StdioClientTransport } from '@modelcontextprotocol/sdk';
+import { Client } from '@modelcontextprotocol/sdk/client';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { EventEmitter } from 'events';
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 import type { ChildProcess } from 'child_process';
-import { spawn } from 'child_process';
 import { errorHandler } from '../utils/error-handler.js';
 import { performanceConfig } from '../config/performance.js';
 import type { Tool } from '../tools/tool-executor.js';
@@ -163,48 +160,43 @@ export class MCPManager extends EventEmitter {
   private async startServer(server: MCPServer): Promise<void> {
     try {
       console.log(`Starting MCP server: ${server.name}`);
-      
-      // Spawn the server process
-      const serverProcess = spawn(server.command, server.args || [], {
-        env: { ...process.env, ...server.env },
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
 
-      // Store process reference
-      this.processes.set(server.name, serverProcess);
-
-      // Create transport
+      // Create transport — StdioClientTransport spawns the process internally
       const transport = new StdioClientTransport({
-        stdin: serverProcess.stdin,
-        stdout: serverProcess.stdout
+        command: server.command,
+        args: server.args || [],
+        env: { ...process.env, ...server.env } as Record<string, string>,
       });
 
-      // Create client
-      const client = new Client({
-        name: `canvas-cli-${server.name}`,
-        version: '1.0.0',
-        transport
-      });
+      // Create client (Implementation, ClientOptions)
+      const client = new Client(
+        { name: `canvas-cli-${server.name}`, version: '1.0.0' },
+      );
 
-      // Connect to server
-      await client.connect();
-      
+      // Connect to server via transport
+      await client.connect(transport);
+
       // Store client reference
       this.clients.set(server.name, client);
 
+      // Track the spawned process if accessible
+      if ((transport as any).process) {
+        const serverProcess = (transport as any).process as ChildProcess;
+        this.processes.set(server.name, serverProcess);
+
+        serverProcess.on('error', (error: Error) => {
+          console.error(`MCP server ${server.name} error:`, error);
+          this.handleServerError(server.name, error);
+        });
+
+        serverProcess.on('exit', (code: number | null) => {
+          console.log(`MCP server ${server.name} exited with code ${code}`);
+          this.handleServerExit(server.name, code);
+        });
+      }
+
       // Discover and register tools
       await this.discoverTools(server.name, client);
-
-      // Handle process errors
-      serverProcess.on('error', (error) => {
-        console.error(`MCP server ${server.name} error:`, error);
-        this.handleServerError(server.name, error);
-      });
-
-      serverProcess.on('exit', (code) => {
-        console.log(`MCP server ${server.name} exited with code ${code}`);
-        this.handleServerExit(server.name, code);
-      });
 
       this.emit('server-started', server.name);
     } catch (error) {
@@ -503,24 +495,24 @@ export class MCPManager extends EventEmitter {
    */
   async testServer(server: MCPServer): Promise<{ success: boolean; error?: string }> {
     try {
-      const tempClient = new Client({
-        name: 'canvas-cli-test',
-        version: '1.0.0',
-        transport: new StdioClientTransport({
-          command: server.command,
-          args: server.args,
-          env: server.env
-        })
+      const transport = new StdioClientTransport({
+        command: server.command,
+        args: server.args,
+        env: server.env,
       });
 
-      await tempClient.connect();
+      const tempClient = new Client(
+        { name: 'canvas-cli-test', version: '1.0.0' },
+      );
+
+      await tempClient.connect(transport);
       await tempClient.close();
-      
+
       return { success: true };
     } catch (error: any) {
-      return { 
-        success: false, 
-        error: error.message 
+      return {
+        success: false,
+        error: error.message
       };
     }
   }

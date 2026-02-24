@@ -1135,10 +1135,11 @@ export class WebInterface extends EventEmitter {
   }
 
   private setupCleanupTimer(): void {
-    setInterval(() => {
+    const interval = setInterval(() => {
       this.cleanupExpiredSessions();
       this.cleanupOldCommands();
     }, 60000); // Every minute
+    interval.unref();
   }
 
   private cleanupExpiredSessions(): void {

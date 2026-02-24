@@ -15,7 +15,7 @@
 import { EventEmitter } from 'events';
 import { exec, ExecException } from 'child_process';
 import { promisify } from 'util';
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 import type {
   VerificationReport,

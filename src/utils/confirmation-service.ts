@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import * as fs from 'fs-extra';
+import fs from 'fs-extra';
 import * as path from 'path';
 
 const execAsync = promisify(exec);
@@ -249,7 +249,7 @@ export class ConfirmationService extends EventEmitter {
    * Clean up expired cache entries
    */
   private cleanupExpiredCache(): void {
-    setInterval(() => {
+    const interval = setInterval(() => {
       const now = Date.now();
       for (const key in this.confirmationCache) {
         if (this.confirmationCache[key].expires <= now) {
@@ -257,6 +257,7 @@ export class ConfirmationService extends EventEmitter {
         }
       }
     }, 60000); // Clean up every minute
+    interval.unref();
   }
 
   /**
