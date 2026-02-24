@@ -11,6 +11,8 @@ import { errorHandler } from '../utils/error-handler.js';
 import { performanceConfig } from '../config/performance.js';
 import type { Tool } from '../tools/tool-executor.js';
 import { toolRegistry } from '../tools/tool-executor.js';
+import { loadMCPConfigs, saveMCPConfig, type MCPConfigSource } from './mcp-config-loader.js';
+import { CanvasMCPServer, startMCPServer, type MCPServerOptions } from './mcp-server.js';
 
 export interface MCPServer {
   name: string;
@@ -19,6 +21,8 @@ export interface MCPServer {
   env?: Record<string, string>;
   enabled?: boolean;
   description?: string;
+  transport?: 'stdio' | 'http' | 'sse';
+  url?: string;
 }
 
 export interface MCPConfig {
@@ -38,10 +42,11 @@ export class MCPManager extends EventEmitter {
   private processes: Map<string, ChildProcess> = new Map();
   private tools: Map<string, MCPTool> = new Map();
   private config: MCPConfig;
-  private configPath: string;
+  private configSources: MCPConfigSource[] = [];
   private initialized: boolean = false;
   private restartTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private isShuttingDown: boolean = false;
+  private mcpServer: CanvasMCPServer | null = null;
 
   // Subprocess cleanup settings
   private static readonly GRACEFUL_SHUTDOWN_TIMEOUT = 5000; // 5 seconds
@@ -55,8 +60,9 @@ export class MCPManager extends EventEmitter {
 
   constructor() {
     super();
-    this.configPath = path.join(process.cwd(), '.canvas-cli', 'mcp-config.json');
-    this.config = this.loadConfig();
+    const { merged, sources } = loadMCPConfigs();
+    this.config = merged;
+    this.configSources = sources;
     this.setupProcessExitHandler();
   }
 
@@ -104,30 +110,30 @@ export class MCPManager extends EventEmitter {
   }
 
   /**
-   * Load MCP configuration
+   * Reload config from all sources (user, project, legacy)
    */
-  private loadConfig(): MCPConfig {
-    try {
-      if (fs.existsSync(this.configPath)) {
-        return fs.readJsonSync(this.configPath);
-      }
-    } catch (error) {
-      console.warn('Failed to load MCP config:', error);
-    }
-
-    return { servers: [] };
+  private reloadConfig(): void {
+    const { merged, sources } = loadMCPConfigs();
+    this.config = merged;
+    this.configSources = sources;
   }
 
   /**
-   * Save MCP configuration
+   * Save MCP configuration to project scope by default
    */
-  private saveConfig(): void {
+  private saveConfig(scope: 'user' | 'project' = 'project'): void {
     try {
-      fs.ensureDirSync(path.dirname(this.configPath));
-      fs.writeJsonSync(this.configPath, this.config, { spaces: 2 });
+      saveMCPConfig(this.config, scope);
     } catch (error) {
       console.error('Failed to save MCP config:', error);
     }
+  }
+
+  /**
+   * Get config sources for display
+   */
+  getConfigSources(): MCPConfigSource[] {
+    return this.configSources;
   }
 
   /**
@@ -467,8 +473,29 @@ export class MCPManager extends EventEmitter {
    */
   async reload(): Promise<void> {
     await this.stopAll();
-    this.config = this.loadConfig();
+    this.reloadConfig();
     await this.initialize();
+  }
+
+  /**
+   * Start Canvas CLI as an MCP server
+   */
+  async startMCPServer(options: MCPServerOptions = {}): Promise<CanvasMCPServer> {
+    if (this.mcpServer) {
+      throw new Error('MCP server is already running');
+    }
+    this.mcpServer = await startMCPServer(options);
+    return this.mcpServer;
+  }
+
+  /**
+   * Stop the MCP server
+   */
+  stopMCPServer(): void {
+    if (this.mcpServer) {
+      this.mcpServer.stop();
+      this.mcpServer = null;
+    }
   }
 
   /**
@@ -527,10 +554,23 @@ export function createMCPCommand(program: any): void {
 
   mcp.command('list')
     .description('List configured MCP servers')
-    .action(async () => {
+    .option('--sources', 'Show config file sources')
+    .action(async (options: { sources?: boolean }) => {
       const manager = MCPManager.getInstance();
       const servers = manager['config'].servers;
-      
+
+      if (options.sources) {
+        const sources = manager.getConfigSources();
+        console.log('\nMCP Config Sources:');
+        for (const source of sources) {
+          console.log(`  [${source.scope}] ${source.path} (${source.config.servers.length} servers)`);
+        }
+        if (sources.length === 0) {
+          console.log('  No config files found');
+        }
+        console.log('');
+      }
+
       if (servers.length === 0) {
         console.log('No MCP servers configured');
         return;
@@ -539,8 +579,9 @@ export function createMCPCommand(program: any): void {
       console.log('\nConfigured MCP Servers:');
       for (const server of servers) {
         const status = manager.getServerStatus(server.name);
-        const statusSymbol = status.connected ? '✅' : '❌';
-        console.log(`${statusSymbol} ${server.name} - ${server.description || 'No description'}`);
+        const statusSymbol = status.connected ? '[on]' : '[off]';
+        const transport = server.transport || 'stdio';
+        console.log(`${statusSymbol} ${server.name} (${transport}) - ${server.description || 'No description'}`);
         if (status.connected) {
           console.log(`   Tools: ${status.toolCount}, PID: ${status.process?.pid}`);
         }
@@ -619,12 +660,28 @@ export function createMCPCommand(program: any): void {
         command,
         args: options.args ? options.args.split(' ') : []
       });
-      
+
       if (result.success) {
-        console.log(`✅ Successfully connected to ${name}`);
+        console.log(`Successfully connected to ${name}`);
       } else {
-        console.log(`❌ Failed to connect: ${result.error}`);
+        console.log(`Failed to connect: ${result.error}`);
       }
+    });
+
+  mcp.command('serve')
+    .description('Expose Canvas CLI tools as an MCP server')
+    .option('-t, --transport <type>', 'Transport type: stdio', 'stdio')
+    .option('-n, --name <name>', 'Server name', 'canvas-cli')
+    .option('-v, --version <version>', 'Server version')
+    .action(async (options: { transport: string; name: string; version?: string }) => {
+      const manager = MCPManager.getInstance();
+      console.log(`Starting Canvas MCP server (${options.transport})...`);
+      console.log('Press Ctrl+C to stop.\n');
+      await manager.startMCPServer({
+        transport: options.transport as 'stdio' | 'http',
+        name: options.name,
+        version: options.version,
+      });
     });
 }
 

@@ -4,6 +4,7 @@ import { confirmationService } from '../utils/confirmation-service.js';
 import { errorHandler, CircuitBreaker, withTimeout } from '../utils/error-handler.js';
 import { performanceConfig } from '../config/performance.js';
 import { TokenCounter } from '../utils/token-counter.js';
+import { permissionManager } from '../permissions/permission-manager.js';
 
 export interface Tool {
   name: string;
@@ -108,8 +109,23 @@ export class ToolExecutor extends EventEmitter {
       this.executionHistory.push(executionContext);
       this.emit('tool-execution-start', executionContext);
 
-      // Request confirmation if needed
-      if (tool.requiresConfirmation) {
+      // Check permission system
+      const permissionDecision = permissionManager.checkPermission({
+        tool: toolName,
+        params: parameters,
+        filePath: parameters?.path || parameters?.filePath,
+      });
+
+      if (permissionDecision === 'deny') {
+        return {
+          success: false,
+          error: `Permission denied for tool "${toolName}"`,
+          duration: Date.now() - startTime,
+        };
+      }
+
+      // Request confirmation if needed (permission says 'ask' or tool requires it)
+      if (permissionDecision === 'ask' && tool.requiresConfirmation) {
         const confirmed = await this.requestConfirmation(tool, parameters);
         if (!confirmed) {
           return {

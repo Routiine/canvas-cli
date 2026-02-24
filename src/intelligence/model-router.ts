@@ -16,7 +16,7 @@ export interface RouterContext {
 }
 
 export interface RouterDecision {
-  routed_to: 'local' | 'claude' | 'openai';
+  routed_to: string;
   provider?: string;
   model?: string;
   reason: string;
@@ -114,9 +114,9 @@ export class ModelRouter {
       tokens_in: estimatedTokens,
       tokens_out: estimatedTokens * 2
     });
-    
+
     return {
-      routed_to: provider.name as 'claude' | 'openai',
+      routed_to: provider.name,
       provider: provider.name,
       model,
       reason: `High complexity (score: ${complexity.score})`,
@@ -124,19 +124,34 @@ export class ModelRouter {
       estimatedCost
     };
   }
-  
+
+  /**
+   * Complete with automatic fallback to other available providers on failure.
+   */
   async complete(task: string, messages: Message[], context: RouterContext = {}): Promise<string> {
     const decision = await this.routeTask(task, context);
-    
+
     if (decision.routed_to === 'local') {
       return ''; // Caller should handle local completion
     }
-    
+
     const registry = getProviderRegistry();
-    const provider = registry.get(decision.provider!);
-    if (!provider) throw new Error(`Provider ${decision.provider} not found`);
-    
-    return provider.complete(messages, { model: decision.model });
+    const available = registry.getAvailable();
+
+    // Try preferred provider first, then fall back to others
+    const ordered = decision.provider
+      ? [registry.get(decision.provider), ...available.filter(p => p.name !== decision.provider)].filter(Boolean) as typeof available
+      : available;
+
+    for (const provider of ordered) {
+      try {
+        return await provider.complete(messages, { model: decision.model });
+      } catch (error: any) {
+        console.warn(`Provider ${provider.name} failed: ${error.message}, trying fallback...`);
+      }
+    }
+
+    throw new Error('All providers failed');
   }
 }
 

@@ -211,20 +211,112 @@ export class ProviderRegistry {
   }
 }
 
+/**
+ * OpenAI-Compatible provider wrapper for the intelligence registry.
+ * Wraps any OpenAI-compatible endpoint (Groq, Together, DeepSeek, etc.)
+ */
+export class OpenAICompatibleIntelligenceProvider implements Provider {
+  name: string;
+  private apiKey: string;
+  private baseUrl: string;
+  private defaultModel: string;
+  private client: OpenAILib | null = null;
+
+  constructor(name: string, opts: { apiKey: string; baseUrl: string; defaultModel: string }) {
+    this.name = name;
+    this.apiKey = opts.apiKey;
+    this.baseUrl = opts.baseUrl;
+    this.defaultModel = opts.defaultModel;
+  }
+
+  isAvailable(): boolean { return !!this.apiKey && !!this.baseUrl; }
+  getDefaultModel(): string { return this.defaultModel; }
+
+  private async getClient(): Promise<OpenAILib> {
+    if (this.client) return this.client;
+    const { OpenAI } = await import('openai');
+    this.client = new OpenAI({ apiKey: this.apiKey, baseURL: this.baseUrl });
+    return this.client;
+  }
+
+  async complete(messages: Message[], options: CompletionOptions = {}): Promise<string> {
+    const client = await this.getClient();
+    const response = await client.chat.completions.create({
+      model: options.model || this.defaultModel,
+      max_tokens: options.maxTokens || 8192,
+      temperature: options.temperature ?? 0.7,
+      messages,
+    });
+    return response.choices[0]?.message?.content || '';
+  }
+
+  async *completeStream(messages: Message[], options: CompletionOptions = {}): AsyncGenerator<string> {
+    const client = await this.getClient();
+    const stream = await client.chat.completions.create({
+      model: options.model || this.defaultModel,
+      max_tokens: options.maxTokens || 8192,
+      temperature: options.temperature ?? 0.7,
+      messages,
+      stream: true,
+    });
+    for await (const chunk of stream) {
+      const content = chunk.choices[0]?.delta?.content;
+      if (content) yield content;
+    }
+  }
+
+  estimateCost(inputTokens: number, outputTokens: number): number {
+    return (inputTokens * 0.5 + outputTokens * 1.5) / 1_000_000;
+  }
+}
+
 let registry: ProviderRegistry | null = null;
 
 export function getProviderRegistry(): ProviderRegistry {
   if (!registry) {
     registry = new ProviderRegistry();
-    
+
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     if (anthropicKey) {
       registry.register('claude', new ClaudeProvider(anthropicKey));
     }
-    
+
     const openaiKey = process.env.OPENAI_API_KEY;
     if (openaiKey) {
       registry.register('openai', new OpenAIProvider(openaiKey));
+    }
+
+    // Auto-register additional providers from env vars
+    if (process.env.DEEPSEEK_API_KEY) {
+      registry.register('deepseek', new OpenAICompatibleIntelligenceProvider('deepseek', {
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        baseUrl: 'https://api.deepseek.com/v1',
+        defaultModel: 'deepseek-chat',
+      }));
+    }
+
+    if (process.env.OPENROUTER_API_KEY) {
+      registry.register('openrouter', new OpenAICompatibleIntelligenceProvider('openrouter', {
+        apiKey: process.env.OPENROUTER_API_KEY,
+        baseUrl: 'https://openrouter.ai/api/v1',
+        defaultModel: 'anthropic/claude-sonnet-4',
+      }));
+    }
+
+    if (process.env.GROQ_API_KEY) {
+      registry.register('groq', new OpenAICompatibleIntelligenceProvider('groq', {
+        apiKey: process.env.GROQ_API_KEY,
+        baseUrl: 'https://api.groq.com/openai/v1',
+        defaultModel: 'llama-3.3-70b-versatile',
+      }));
+    }
+
+    if (process.env.TOGETHER_API_KEY) {
+      registry.register('together', new OpenAICompatibleIntelligenceProvider('together', {
+        apiKey: process.env.TOGETHER_API_KEY,
+        baseUrl: 'https://api.together.xyz/v1',
+        defaultModel: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo',
+      }));
     }
   }
   return registry;

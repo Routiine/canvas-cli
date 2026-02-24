@@ -4,8 +4,24 @@
 
 import type { Provider, ProviderMetadata, ProviderConfig } from './base-provider.js';
 import { OllamaProvider } from './ollama-provider.js';
+import { OpenAICompatibleProvider } from './openai-compatible-provider.js';
+import { GeminiProvider } from './gemini-provider.js';
+import { DeepSeekProvider } from './deepseek-provider.js';
+import { OpenRouterProvider } from './openrouter-provider.js';
+import { AzureOpenAIProvider } from './azure-openai-provider.js';
+import { BedrockProvider } from './bedrock-provider.js';
 
-export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'google';
+export type ProviderType =
+  | 'ollama'
+  | 'openai'
+  | 'anthropic'
+  | 'google'
+  | 'gemini'
+  | 'deepseek'
+  | 'openrouter'
+  | 'azure-openai'
+  | 'bedrock'
+  | 'openai-compatible';
 
 export interface RegisteredProvider {
   type: ProviderType;
@@ -348,9 +364,53 @@ export class ProviderRegistry {
   private registerBuiltInProviders(): void {
     // Register Ollama provider by default
     const ollamaProvider = new OllamaProvider();
-    this.registerProvider('ollama', ollamaProvider, {}, true).catch(error => {
-      console.warn('Failed to register Ollama provider:', error);
-    });
+    this.registerProvider('ollama', ollamaProvider, {}, true).catch(() => {});
+
+    // Auto-register providers based on env vars
+    if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
+      const gemini = new GeminiProvider();
+      this.registerProvider('gemini', gemini, {
+        apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
+      }).catch(() => {});
+    }
+
+    if (process.env.DEEPSEEK_API_KEY) {
+      const deepseek = new DeepSeekProvider();
+      this.registerProvider('deepseek', deepseek, {
+        apiKey: process.env.DEEPSEEK_API_KEY,
+      }).catch(() => {});
+    }
+
+    if (process.env.OPENROUTER_API_KEY) {
+      const openrouter = new OpenRouterProvider();
+      this.registerProvider('openrouter', openrouter, {
+        apiKey: process.env.OPENROUTER_API_KEY,
+      }).catch(() => {});
+    }
+
+    if (process.env.AZURE_OPENAI_API_KEY && process.env.AZURE_OPENAI_ENDPOINT) {
+      const azure = new AzureOpenAIProvider();
+      this.registerProvider('azure-openai', azure, {
+        apiKey: process.env.AZURE_OPENAI_API_KEY,
+        endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+        deployment: process.env.AZURE_OPENAI_DEPLOYMENT,
+      }).catch(() => {});
+    }
+
+    if (process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) {
+      const bedrock = new BedrockProvider();
+      this.registerProvider('bedrock', bedrock, {
+        region: process.env.AWS_REGION,
+      }).catch(() => {});
+    }
+
+    if (process.env.OPENAI_COMPATIBLE_BASE_URL) {
+      const compat = new OpenAICompatibleProvider();
+      this.registerProvider('openai-compatible', compat, {
+        baseUrl: process.env.OPENAI_COMPATIBLE_BASE_URL,
+        apiKey: process.env.OPENAI_COMPATIBLE_API_KEY,
+      }).catch(() => {});
+    }
   }
 }
 

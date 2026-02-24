@@ -5,6 +5,7 @@ import os from 'os';
 import chalk from 'chalk';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { permissionManager } from '../permissions/permission-manager.js';
 
 const execAsync = promisify(exec);
 
@@ -155,6 +156,30 @@ export class HookSystem extends EventEmitter {
       }
     });
     
+    // Permission system hook
+    this.registerHook({
+      name: 'permission-checker',
+      trigger: 'pre-tool-use',
+      enabled: true,
+      priority: 2,
+      description: 'Checks tool permissions via the permission manager',
+      execute: async (context: HookContext) => {
+        if (!context.tool) return { allow: true };
+        const decision = permissionManager.checkPermission({
+          tool: context.tool,
+          params: context.parameters,
+        });
+        if (decision === 'deny') {
+          return {
+            allow: false,
+            message: `Permission denied for tool: ${context.tool}`,
+            suggestions: ['Run "canvas permissions" to manage rules'],
+          };
+        }
+        return { allow: true };
+      },
+    });
+
     // Context injection hook
     this.registerHook({
       name: 'context-injector',

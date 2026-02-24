@@ -55,6 +55,12 @@ import { createFeatureCommands } from './commands/feature-commands.js';
 import { registerMemoryCommands } from './memory/memory-commands.js';
 import { registerFinetuneCommands } from './finetune/finetune-commands.js';
 
+// MCP server management
+import { createMCPCommand } from './mcp/mcp-manager.js';
+
+// Headless mode
+import { registerHeadlessCommands, executeHeadless } from './modes/headless.js';
+
 // Plugin system
 import { loadPlugins, registerPluginCommands, listPlugins } from './plugins/plugin-loader.js';
 
@@ -227,6 +233,9 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
   // Priority 5: Fine-tuning commands
   registerFinetuneCommands(program);
 
+  // MCP server management (canvas mcp list|add|remove|start|stop|tools|test|serve)
+  createMCPCommand(program);
+
   // canvas edit <file> <instruction> — AI-powered file edit with diff review
   program.addCommand(createEditCommand());
 
@@ -379,6 +388,116 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
       }
       console.log();
     });
+
+  // Skills management (canvas skills list|install|enable|disable)
+  const skillsCmd = program.command('skills').description('Manage AI skills');
+
+  skillsCmd
+    .command('list')
+    .description('List installed skills')
+    .action(async () => {
+      const { getSkillRegistry } = await import('./skills/skill-registry.js');
+      const registry = getSkillRegistry();
+      const skills = registry.list();
+      if (skills.length === 0) {
+        console.log('No skills installed');
+        return;
+      }
+      for (const s of skills) {
+        const status = s.enabled ? chalk.green('[on]') : chalk.gray('[off]');
+        console.log(`  ${status} ${s.name} — ${s.description}`);
+      }
+    });
+
+  skillsCmd
+    .command('install <path>')
+    .description('Install a skill from a file')
+    .action(async (filePath: string) => {
+      const { getSkillRegistry } = await import('./skills/skill-registry.js');
+      const manifest = getSkillRegistry().install(filePath);
+      console.log(`Installed skill: ${manifest.name}`);
+    });
+
+  skillsCmd
+    .command('enable <name>')
+    .description('Enable a skill')
+    .action(async (name: string) => {
+      const { getSkillRegistry } = await import('./skills/skill-registry.js');
+      getSkillRegistry().enable(name);
+      console.log(`Enabled: ${name}`);
+    });
+
+  skillsCmd
+    .command('disable <name>')
+    .description('Disable a skill')
+    .action(async (name: string) => {
+      const { getSkillRegistry } = await import('./skills/skill-registry.js');
+      getSkillRegistry().disable(name);
+      console.log(`Disabled: ${name}`);
+    });
+
+  // Audit log (canvas audit show)
+  program
+    .command('audit')
+    .description('Show audit log')
+    .option('-n, --limit <n>', 'Number of entries', '20')
+    .option('--since <date>', 'Show entries since date')
+    .option('--type <type>', 'Filter by event type')
+    .action(async (opts: { limit: string; since?: string; type?: string }) => {
+      const { getAuditLogger } = await import('./enterprise/audit-logger.js');
+      const logger = getAuditLogger();
+      const entries = logger.query({
+        limit: parseInt(opts.limit, 10),
+        since: opts.since,
+        eventType: opts.type,
+      });
+      if (entries.length === 0) {
+        console.log('No audit entries found');
+        return;
+      }
+      for (const e of entries) {
+        console.log(`  [${e.timestamp}] ${e.event_type} ${e.action} → ${e.result || 'ok'}`);
+      }
+    });
+
+  // Shell completion (canvas completion bash|zsh|fish)
+  program
+    .command('completion')
+    .description('Generate shell completion script')
+    .argument('<shell>', 'Shell type: bash, zsh, fish')
+    .action(async (shell: string) => {
+      const { getCompletionScript } = await import('./cli/tab-completion.js');
+      console.log(getCompletionScript(shell as 'bash' | 'zsh' | 'fish'));
+    });
+
+  // Watch mode (canvas watch)
+  program
+    .command('watch')
+    .description('Watch files for AI comments (// AI! and // AI?)')
+    .option('--root <dir>', 'Root directory to watch', process.cwd())
+    .action(async (opts: { root: string }) => {
+      const { WatchMode } = await import('./modes/watch-mode.js');
+      const watcher = new WatchMode({ root: opts.root });
+      watcher.on('trigger', (trigger) => {
+        console.log(`  [${trigger.type}] ${trigger.filePath}:${trigger.line} — ${trigger.comment}`);
+      });
+      console.log(`Watching for AI comments in ${opts.root}...`);
+      console.log('Press Ctrl+C to stop.\n');
+      await watcher.start();
+    });
+
+  // PR linking (canvas pr link <number>)
+  const prCmd = program.command('pr').description('GitHub PR operations');
+  prCmd
+    .command('link <number>')
+    .description('Link current session to a PR')
+    .action(async (number: string) => {
+      const { linkSessionToPR } = await import('./git/pr-linker.js');
+      const sessionId = process.env.CANVAS_SESSION_ID || `session-${Date.now()}`;
+      const ok = await linkSessionToPR(parseInt(number, 10), sessionId);
+      if (ok) console.log(`Linked session to PR #${number}`);
+      else console.error('Failed to link session to PR');
+    });
 }
 
 function registerFeatureCommands(program: Command, featureManager: FeatureManager | null): void {
@@ -520,6 +639,9 @@ async function main(): Promise<void> {
   registerFeatureCommands(program, featureManager);
   registerBuiltinCommands(program);
 
+  // Headless mode flags (-p, --headless, --auto-approve, --output-format, etc.)
+  registerHeadlessCommands(program);
+
   // Load and register plugins from ~/.canvas/plugins/
   await loadPlugins();
   registerPluginCommands(program);
@@ -534,6 +656,25 @@ async function main(): Promise<void> {
       }
     }).catch(() => { /* Non-critical */ });
   }).catch(() => { /* Non-critical */ });
+
+  // Handle -p/--prompt flag for headless execution
+  const promptIdx = process.argv.indexOf('-p');
+  const promptLongIdx = process.argv.indexOf('--prompt');
+  const headlessPromptIdx = promptIdx !== -1 ? promptIdx : promptLongIdx;
+
+  if (headlessPromptIdx !== -1 && process.argv[headlessPromptIdx + 1]) {
+    const prompt = process.argv[headlessPromptIdx + 1];
+    const outputFormat = (process.argv.includes('--output-format')
+      ? process.argv[process.argv.indexOf('--output-format') + 1]
+      : 'text') as 'json' | 'text' | 'markdown';
+    const autoApprove = process.argv.includes('--auto-approve');
+    const verbose = process.argv.includes('--verbose');
+    const result = await executeHeadless({ prompt, outputFormat, autoApprove, verbose });
+    if (result.success && outputFormat === 'json') {
+      console.log(JSON.stringify(result, null, 2));
+    }
+    process.exit(result.success ? 0 : 1);
+  }
 
   // Default to chat command when no command provided
   if (process.argv.length === 2) {

@@ -298,6 +298,33 @@ class ModelManagerSingleton {
   }
 
   /**
+   * Register a set of aliases at once (from config)
+   */
+  registerAliasMap(aliases: Record<string, string>): void {
+    for (const [alias, model] of Object.entries(aliases)) {
+      this.modelAliases.set(alias, model);
+    }
+  }
+
+  /**
+   * Get a fallback chain: returns models to try in order.
+   */
+  getFallbackChain(modelName: string): string[] {
+    const chain: string[] = [];
+    const resolved = this.resolveModelAlias(modelName) || modelName;
+    chain.push(resolved);
+
+    const caps = this.getCapabilities(resolved);
+    if (caps) {
+      const sameProvider = Array.from(this.modelCapabilities.values())
+        .filter(m => m.provider === caps.provider && m.name !== resolved);
+      chain.push(...sameProvider.map(m => m.name));
+    }
+
+    return chain;
+  }
+
+  /**
    * Generate a response using the current model via Ollama
    */
   async generateResponse(prompt: string, options?: {
