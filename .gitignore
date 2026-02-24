@@ -43,3 +43,6 @@ Desktop.ini
 
 # Canvas workspace directory
 .canvas/
+
+# Fine-tuning training data
+.canvas/training/

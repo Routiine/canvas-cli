@@ -12,7 +12,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { loadConfig, saveConfig } from './config.js';
 import { ModelManager } from './models/model-manager.js';
-import { initializeCanvasFeatures, CanvasFeatures } from './features/index.js';
+import { initializeCanvasFeatures, CanvasFeatures, type FeatureManager } from './features/index.js';
 import { initializeSkillSystem } from './skills/skillSystem.js';
 
 // Polished UI
@@ -38,7 +38,11 @@ import {
   createInitCommand,
   createToolsCommand,
   createAgentCommand,
-  registerBuiltinCommands
+  registerBuiltinCommands,
+  createEditCommand,
+  createUndoCommand,
+  createTestCommand,
+  createReviewPRCommand
 } from './commands/index.js';
 import { registerInkUICommand } from './commands/ink-ui.js';
 import { createInstallCommand } from './commands/install.js';
@@ -46,6 +50,14 @@ import { createUpdateCommand } from './commands/update.js';
 
 // Import feature commands
 import { createFeatureCommands } from './commands/feature-commands.js';
+
+// Strategic system commands (Priorities 1-5)
+import { registerMemoryCommands } from './memory/memory-commands.js';
+import { registerFinetuneCommands } from './finetune/finetune-commands.js';
+
+// Plugin system
+import { loadPlugins, registerPluginCommands, listPlugins } from './plugins/plugin-loader.js';
+
 import { createRequire } from 'module';
 const _require = createRequire(import.meta.url);
 const pkg = _require('../package.json');
@@ -110,7 +122,7 @@ async function setupInitialConfig(): Promise<boolean> {
   return false;
 }
 
-async function initializeSystems(): Promise<any> {
+async function initializeSystems(): Promise<FeatureManager | null> {
   const config = loadConfig();
 
   // Register default model
@@ -141,7 +153,7 @@ async function initializeSystems(): Promise<any> {
   return featureManager;
 }
 
-function registerCoreCommands(program: Command, config: any): void {
+function registerCoreCommands(program: Command, config: ReturnType<typeof loadConfig>): void {
   // Chat (default command)
   program.addCommand(createChatCommand());
 
@@ -208,9 +220,168 @@ function registerCoreCommands(program: Command, config: any): void {
   // Knowledge commands
   program.addCommand(createCrawlCommand());
   program.addCommand(createSearchCommand());
+
+  // Priority 3: Persistent memory commands
+  registerMemoryCommands(program);
+
+  // Priority 5: Fine-tuning commands
+  registerFinetuneCommands(program);
+
+  // canvas edit <file> <instruction> — AI-powered file edit with diff review
+  program.addCommand(createEditCommand());
+
+  // canvas undo <file> — restore from pre-edit snapshot
+  program.addCommand(createUndoCommand());
+
+  // canvas test <file> — generate + iterate tests
+  program.addCommand(createTestCommand());
+
+  // canvas review-pr <number> — AI code review posted to GitHub
+  program.addCommand(createReviewPRCommand());
+
+  // canvas ask <query> — semantic search over codebase
+  program
+    .command('ask')
+    .description('Semantic search over the codebase using embeddings')
+    .argument('<query>', 'Natural language question about the codebase')
+    .option('-k, --top-k <n>', 'Number of results to return', '5')
+    .option('--context', 'Show full chunk text in results', false)
+    .action(async (query: string, opts: { topK: string; context: boolean }) => {
+      const { semanticSearch } = await import('./intelligence/semantic-search.js');
+      try {
+        const results = await semanticSearch(query, parseInt(opts.topK, 10));
+        console.log(chalk.cyan.bold(`\nSemantic search: "${query}"\n`));
+        for (const r of results) {
+          const scoreBar = chalk.green('█'.repeat(Math.round(r.score * 20)));
+          console.log(chalk.bold(`  ${r.filePath}`) + chalk.dim(` :${r.startLine}-${r.endLine}`) + `  ${scoreBar} ${(r.score * 100).toFixed(1)}%`);
+          if (opts.context) {
+            const preview = r.text.split('\n').slice(0, 6).join('\n');
+            console.log(chalk.dim(preview.split('\n').map(l => `    ${l}`).join('\n')));
+          }
+          console.log();
+        }
+      } catch (err: unknown) {
+        console.error(chalk.red(err instanceof Error ? err.message : String(err)));
+      }
+    });
+
+  // canvas plugins — manage plugins
+  program
+    .command('plugins')
+    .description('List installed plugins from ~/.canvas/plugins/')
+    .action(() => {
+      listPlugins();
+    });
+
+  // Priority 2: Codebase index commands
+  const indexCmd = program.command('index').description('Manage codebase semantic graph index');
+
+  indexCmd
+    .command('build')
+    .description('Build semantic index of the codebase')
+    .option('--root <dir>', 'Root directory to index', process.cwd())
+    .option('--no-embeddings', 'Skip embedding files for semantic search')
+    .action(async (opts: { root: string; embeddings: boolean }) => {
+      const { buildIndex } = await import('./graph/codebase-graph.js');
+      const indexedFiles = await buildIndex(opts.root, true);
+
+      if (opts.embeddings !== false && indexedFiles && indexedFiles.length > 0) {
+        const { embedFiles } = await import('./intelligence/semantic-search.js');
+        console.log(chalk.dim('\nBuilding semantic embedding index...'));
+        await embedFiles({ rootDir: opts.root, files: indexedFiles, verbose: true });
+      }
+    });
+
+  indexCmd
+    .command('query <symbol>')
+    .description('Query the semantic index for a symbol')
+    .action(async (symbol: string) => {
+      const { querySymbol, getStats } = await import('./graph/codebase-graph.js');
+      const results = querySymbol(symbol);
+      if (results.length === 0) {
+        console.log(chalk.gray(`No results for: ${symbol}`));
+        return;
+      }
+      console.log(chalk.cyan.bold(`\n🔍 Symbol: ${symbol} (${results.length} results)\n`));
+      for (const node of results.slice(0, 10)) {
+        console.log(chalk.bold(`  ${node.symbol_name} [${node.node_type}]`));
+        console.log(chalk.gray(`    ${node.file_path}:${node.line_start || '?'}`));
+        if (node.signature) console.log(chalk.gray(`    ${node.signature}`));
+        if (node.git_author) console.log(chalk.gray(`    Author: ${node.git_author}`));
+        console.log();
+      }
+      const stats = getStats();
+      console.log(chalk.gray(`Index: ${stats.nodeCount} nodes | ${stats.edgeCount} edges | ${stats.fileCount} files`));
+    });
+
+  indexCmd
+    .command('dataflow <file>')
+    .description('Analyze data flow in a file (sources → sinks)')
+    .action(async (file: string) => {
+      const { analyzeFileDataFlow, getDataFlowSummary } = await import('./graph/data-flow-analyzer.js');
+      const result = await analyzeFileDataFlow(file);
+      console.log(chalk.cyan.bold(`\n🔀 Data Flow: ${file}\n`));
+      console.log(getDataFlowSummary(result));
+      if (result.paths.length === 0) {
+        console.log(chalk.gray('  No tainted data flows detected.'));
+      }
+      console.log();
+    });
+
+  // Priority 4: Daemon commands
+  const daemonCmd = program.command('daemon').description('Manage background analysis daemon');
+
+  daemonCmd
+    .command('start')
+    .description('Start the background daemon')
+    .action(async () => {
+      const { startDaemon } = await import('./daemon/daemon-manager.js');
+      const result = await startDaemon();
+      if (result.success) {
+        console.log(chalk.green(`✓ ${result.message}`));
+      } else {
+        console.log(chalk.yellow(`⚠ ${result.message}`));
+      }
+    });
+
+  daemonCmd
+    .command('stop')
+    .description('Stop the background daemon')
+    .action(async () => {
+      const { stopDaemon } = await import('./daemon/daemon-manager.js');
+      const result = stopDaemon();
+      if (result.success) {
+        console.log(chalk.green(`✓ ${result.message}`));
+      } else {
+        console.log(chalk.yellow(`⚠ ${result.message}`));
+      }
+    });
+
+  daemonCmd
+    .command('status')
+    .description('Show daemon status and recent findings')
+    .action(async () => {
+      const { getDaemonStatus, getFindings } = await import('./daemon/daemon-manager.js');
+      const s = await getDaemonStatus();
+      console.log(chalk.cyan.bold('\n🔮 Daemon Status\n'));
+      console.log(`  Running: ${s.running ? chalk.green('yes') : chalk.red('no')}`);
+      if (s.pid) console.log(`  PID: ${s.pid}`);
+      console.log(`  Log: ${s.logFile}`);
+      console.log(`  Findings (24h): ${s.recentFindings}`);
+      console.log(`  Unresolved: ${s.unresolvedFindings}`);
+      if (s.unresolvedFindings > 0) {
+        console.log(chalk.cyan('\n  Recent findings:'));
+        const findings = getFindings({ resolved: false, limit: 5 });
+        for (const f of findings) {
+          const sevFn = f.severity === 'error' ? chalk.red : f.severity === 'warning' ? chalk.yellow : chalk.gray;
+          console.log(`    ${sevFn(f.severity.toUpperCase())} [${f.job_name}] ${f.message}`);
+        }
+      }
+      console.log();
+    });
 }
 
-function registerFeatureCommands(program: Command, featureManager: any): void {
+function registerFeatureCommands(program: Command, featureManager: FeatureManager | null): void {
   if (!featureManager) return;
 
   program
@@ -233,7 +404,7 @@ function registerFeatureCommands(program: Command, featureManager: any): void {
         console.log(uiTheme.dim(`Created notebook: ${nb.name}`));
       } else if (action === 'list') {
         const list = notebooks.listNotebooks();
-        list.forEach((nb: any) => console.log(`- ${nb.name} (${nb.modified})`));
+        list.forEach((nb: { name: string; modified: Date | string }) => console.log(`- ${nb.name} (${nb.modified})`));
       } else {
         console.log('Usage: canvas notebook <create|open|list|execute> [name]');
       }
@@ -298,7 +469,7 @@ function registerFeatureCommands(program: Command, featureManager: any): void {
         }
       } else if (action === 'list') {
         const list = await workspace.listWorkspaces();
-        list.forEach((ws: any) => console.log(`- ${ws.name}`));
+        list.forEach((ws: { name: string }) => console.log(`- ${ws.name}`));
       } else {
         console.log('Usage: canvas workspace <save|restore|list>');
       }
@@ -313,7 +484,7 @@ function registerFeatureCommands(program: Command, featureManager: any): void {
       const kb = CanvasFeatures.getCollaboration().knowledgeBase;
       if (action === 'search' && query) {
         const results = await kb.search({ text: query, limit: 10 });
-        results.forEach((r: any) => console.log(`- ${r.item?.title || 'Result'}`));
+        results.forEach((r: { item?: { title?: string } }) => console.log(`- ${r.item?.title || 'Result'}`));
       } else if (action === 'list') {
         console.log('Knowledge base collections listed');
       } else {
@@ -341,12 +512,28 @@ async function main(): Promise<void> {
     .option('--no-tools', 'Disable all tools')
     .option('--checkpointing', 'Enable automatic checkpointing')
     .option('--web [port]', 'Start web UI server (default port: 3000)')
-    .option('--plugins', 'Load plugins on startup');
+    .option('--plugins', 'Load plugins on startup')
+    .option('--local-only', 'Use only local models, never call external APIs');
 
   // Register all commands
   registerCoreCommands(program, config);
   registerFeatureCommands(program, featureManager);
   registerBuiltinCommands(program);
+
+  // Load and register plugins from ~/.canvas/plugins/
+  await loadPlugins();
+  registerPluginCommands(program);
+
+  // Priority 3: Load session memory context at startup (non-blocking)
+  import('./memory/session-bridge.js').then(({ SessionBridge }) => {
+    const bridge = new SessionBridge('canvas-main', process.cwd());
+    bridge.loadContext().then((ctx) => {
+      if (ctx.systemPromptAddition) {
+        // Context is available for agents to use via SessionBridge
+        process.env.CANVAS_SESSION_CONTEXT = ctx.systemPromptAddition.slice(0, 2000);
+      }
+    }).catch(() => { /* Non-critical */ });
+  }).catch(() => { /* Non-critical */ });
 
   // Default to chat command when no command provided
   if (process.argv.length === 2) {

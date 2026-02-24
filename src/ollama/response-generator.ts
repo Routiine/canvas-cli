@@ -8,7 +8,7 @@ import { loadConfig } from '../config.js';
 import { OllamaClient, getOllamaClient, checkOllamaConnection } from './client.js';
 import type { OllamaGenerateRequest, OllamaGenerateResponse, TokenCount } from './types.js';
 import type { Message } from '../types.js';
-import type { CommandHandler } from '../commands.js';
+import type { CommandContext } from '../commands/command-context.js';
 import { AnimatedSpinner } from '../ui/spinner.js';
 import { parseToolCalls } from '../toolPrompt.js';
 import { forceToolExecution, getSimpleToolPrompt, getNextStepPrompt } from '../tools/forceExecute.js';
@@ -184,7 +184,7 @@ function isDirectShellCommand(prompt: string): string | null {
 export async function generateResponseWithTools(
   prompt: string,
   model: string,
-  commandHandler: CommandHandler,
+  commandHandler: CommandContext,
   isExecutionMode: boolean = false,
   retryCount: number = 0
 ): Promise<string> {

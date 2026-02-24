@@ -36,6 +36,21 @@ export default [
       'prefer-const': 'warn'
     }
   },
+  // New strategic modules: strictly no-any (these were written clean)
+  {
+    files: [
+      'src/intelligence/**/*.ts',
+      'src/graph/**/*.ts',
+      'src/memory/**/*.ts',
+      'src/daemon/**/*.ts',
+      'src/finetune/**/*.ts',
+      'src/commands/command-context.ts',
+      'src/web/server.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+    }
+  },
   {
     files: ['tests/**/*.ts'],
     languageOptions: {

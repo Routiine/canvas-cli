@@ -418,6 +418,9 @@ export { createSearchCommand } from './search-cli.js';
 export { createInitCommand } from './init-cli.js';
 export { createToolsCommand } from './tools-cli.js';
 export { createAgentCommand } from './agent-cli.js';
+export { createEditCommand, createUndoCommand } from './edit-command.js';
+export { createTestCommand } from './test-command.js';
+export { createReviewPRCommand } from './review-pr-command.js';
 
 /**
  * Register all builtin commands with Commander

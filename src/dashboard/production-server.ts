@@ -12,6 +12,18 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import Database from 'better-sqlite3';
+
+// Lazy-loaded DB for strategic system endpoints
+function getStrategicDb(): Database.Database | null {
+  try {
+    const dbPath = path.join(os.homedir(), '.canvas', 'canvas.db');
+    const db = new Database(dbPath, { readonly: true });
+    return db;
+  } catch {
+    return null;
+  }
+}
 
 // Unhandled rejection handler at module level
 process.on('unhandledRejection', (reason, _promise) => {
@@ -237,6 +249,18 @@ class ProductionDashboardServer extends EventEmitter {
     apiRouter.get('/analytics/performance', this.handleGetPerformanceAnalytics.bind(this));
     apiRouter.get('/analytics/agents', this.handleGetAgentAnalytics.bind(this));
     apiRouter.get('/reports/tasks', this.handleGetTasksReport.bind(this));
+
+    // Priority 4: Daemon findings
+    apiRouter.get('/daemon/findings', this.handleGetDaemonFindings.bind(this));
+    apiRouter.put('/daemon/findings/:id/resolve', this.handleResolveDaemonFinding.bind(this));
+    apiRouter.get('/daemon/status', this.handleGetDaemonStatus.bind(this));
+
+    // Priority 1: Routing stats
+    apiRouter.get('/routing/stats', this.handleGetRoutingStats.bind(this));
+
+    // Priority 2: Graph stats and data flow
+    apiRouter.get('/graph/stats', this.handleGetGraphStats.bind(this));
+    apiRouter.get('/graph/dataflow', this.handleGetDataFlow.bind(this));
 
     this.app.use('/api', apiRouter);
   }
@@ -759,6 +783,175 @@ class ProductionDashboardServer extends EventEmitter {
 
   private cleanupOldData(): void {
     // Clean up old metrics and logs
+  }
+
+  // ── Strategic System Handlers ──────────────────────────────────────────────
+
+  private handleGetDaemonFindings(req: express.Request, res: express.Response): void {
+    try {
+      const db = getStrategicDb();
+      if (!db) { res.json({ findings: [], error: 'Database not initialized' }); return; }
+
+      const resolved = req.query.resolved === 'true' ? 1 : req.query.resolved === 'false' ? 0 : null;
+      const severity = req.query.severity as string | undefined;
+      const limit = Math.min(parseInt(req.query.limit as string || '50'), 200);
+
+      const conditions: string[] = [];
+      const params: any[] = [];
+      if (resolved !== null) { conditions.push('resolved = ?'); params.push(resolved); }
+      if (severity) { conditions.push('severity = ?'); params.push(severity); }
+
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      params.push(limit);
+
+      const findings = db.prepare(
+        `SELECT * FROM daemon_findings ${where} ORDER BY created_at DESC LIMIT ?`
+      ).all(...params);
+
+      const counts = db.prepare(
+        `SELECT severity, COUNT(*) as count FROM daemon_findings WHERE resolved = 0 GROUP BY severity`
+      ).all() as { severity: string; count: number }[];
+
+      db.close();
+      res.json({ findings, summary: counts });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  }
+
+  private handleResolveDaemonFinding(req: express.Request, res: express.Response): void {
+    try {
+      // Use read-write DB for mutations
+      const dbPath = path.join(os.homedir(), '.canvas', 'canvas.db');
+      const db = new Database(dbPath);
+      const result = db.prepare(
+        'UPDATE daemon_findings SET resolved = 1 WHERE id = ?'
+      ).run(req.params.id);
+      db.close();
+
+      if (result.changes === 0) {
+        res.status(404).json({ error: 'Finding not found' });
+      } else {
+        res.json({ success: true });
+      }
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  }
+
+  private handleGetDaemonStatus(req: express.Request, res: express.Response): void {
+    try {
+      const pidFile = path.join(os.homedir(), '.canvas', 'daemon.pid');
+      let running = false;
+      let pid: number | null = null;
+
+      try {
+        const pidStr = require('fs').readFileSync(pidFile, 'utf-8').trim();
+        pid = parseInt(pidStr);
+        process.kill(pid, 0);
+        running = true;
+      } catch { /* not running */ }
+
+      const db = getStrategicDb();
+      let recentFindings = 0;
+      let unresolvedFindings = 0;
+      if (db) {
+        const dayAgo = Date.now() - 86400000;
+        recentFindings = (db.prepare('SELECT COUNT(*) as c FROM daemon_findings WHERE created_at > ?').get(dayAgo) as { c: number }).c;
+        unresolvedFindings = (db.prepare('SELECT COUNT(*) as c FROM daemon_findings WHERE resolved = 0').get() as { c: number }).c;
+        db.close();
+      }
+
+      res.json({ running, pid, recentFindings, unresolvedFindings });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  }
+
+  private handleGetRoutingStats(req: express.Request, res: express.Response): void {
+    try {
+      const db = getStrategicDb();
+      if (!db) { res.json({ stats: null, error: 'Database not initialized' }); return; }
+
+      const days = parseInt(req.query.days as string || '7');
+      const since = Date.now() - days * 86400000;
+
+      const totals = db.prepare(`
+        SELECT
+          routed_to,
+          COUNT(*) as requests,
+          COALESCE(SUM(cost_usd), 0) as total_cost,
+          COALESCE(AVG(complexity_score), 0) as avg_complexity,
+          COALESCE(SUM(tokens_in), 0) as total_tokens_in,
+          COALESCE(SUM(tokens_out), 0) as total_tokens_out
+        FROM routing_log
+        WHERE created_at > ?
+        GROUP BY routed_to
+      `).all(since) as any[];
+
+      const daily = db.prepare(`
+        SELECT
+          DATE(created_at / 1000, 'unixepoch') as date,
+          routed_to,
+          COUNT(*) as requests,
+          COALESCE(SUM(cost_usd), 0) as cost
+        FROM routing_log
+        WHERE created_at > ?
+        GROUP BY date, routed_to
+        ORDER BY date
+      `).all(since) as any[];
+
+      const budget = db.prepare(
+        "SELECT value FROM budget_config WHERE key = 'session_budget_usd'"
+      ).get() as { value: string } | undefined;
+
+      db.close();
+      res.json({
+        period: `${days}d`,
+        byProvider: totals,
+        daily,
+        sessionBudget: budget ? parseFloat(budget.value) : 1.0
+      });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  }
+
+  private handleGetGraphStats(_req: express.Request, res: express.Response): void {
+    try {
+      const db = getStrategicDb();
+      if (!db) { res.json({ stats: null, error: 'Database not initialized' }); return; }
+
+      const nodeCount = (db.prepare('SELECT COUNT(*) as c FROM graph_nodes').get() as { c: number }).c;
+      const edgeCount = (db.prepare('SELECT COUNT(*) as c FROM graph_edges').get() as { c: number }).c;
+      const fileCount = (db.prepare("SELECT COUNT(DISTINCT file_path) as c FROM graph_nodes").get() as { c: number }).c;
+      const byType = db.prepare(
+        'SELECT node_type, COUNT(*) as count FROM graph_nodes GROUP BY node_type'
+      ).all() as { node_type: string; count: number }[];
+      const recentFiles = db.prepare(`
+        SELECT file_path, git_author, git_last_modified, commit_summary
+        FROM graph_nodes WHERE node_type = 'file'
+        ORDER BY git_last_modified DESC LIMIT 10
+      `).all() as any[];
+
+      db.close();
+      res.json({ nodeCount, edgeCount, fileCount, byType, recentFiles });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  }
+
+  private async handleGetDataFlow(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      const file = req.query.file as string;
+      if (!file) { res.status(400).json({ error: 'file query param required' }); return; }
+
+      const { analyzeFileDataFlow } = await import('../graph/data-flow-analyzer.js');
+      const result = await analyzeFileDataFlow(file);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
   }
 
   async start(): Promise<void> {

@@ -1,7 +1,7 @@
 import express from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
-import { createServer } from 'http';
+import { createServer, type Server as HttpServer } from 'http';
 import path from 'path';
 import fs from 'fs-extra';
 import chalk from 'chalk';
@@ -10,17 +10,71 @@ import { Tool } from '../types.js';
 import { ToolRegistry } from '../tools/registry.js';
 import { CheckpointManager } from '../checkpoint.js';
 import { ThemeManager } from '../themes.js';
-import { CommandHandler } from '../commands.js';
+
+interface WebSession {
+  id: string;
+  created: Date;
+  messages: Message[];
+  active: boolean;
+}
+
+/**
+ * QUAL-007: Thin Commander-compatible dispatcher for web socket commands.
+ * Replaces the CommandHandler dependency with direct handler delegation.
+ */
+async function dispatchSlashCommand(input: string): Promise<string | null> {
+  const parts = input.trim().split(' ');
+  const command = parts[0].startsWith('/') ? parts[0].slice(1) : parts[0];
+  const args = parts.slice(1).join(' ');
+
+  switch (command) {
+    case 'help':
+    case '?':
+      return 'Available commands: /help /memory /workflow /skill /theme /model /tools /stats /clear /status';
+    case 'memory': {
+      const { MemoryHandler } = await import('../handlers/memory-handler.js');
+      const theme = new ThemeManager('default');
+      const registry = new ToolRegistry();
+      const { ContextLoader } = await import('../tools/memory.js');
+      const handler = new MemoryHandler(theme, registry, new ContextLoader());
+      return handler.handleCommand(args);
+    }
+    case 'workflow':
+    case 'wf': {
+      const { WorkflowHandler } = await import('../handlers/workflow-handler.js');
+      const { WorkflowEngine } = await import('../tools/workflows.js');
+      const theme = new ThemeManager('default');
+      const registry = new ToolRegistry();
+      const handler = new WorkflowHandler(theme, new WorkflowEngine(registry));
+      return handler.handleCommand(args);
+    }
+    case 'skill':
+    case 'skills': {
+      const { SkillHandler } = await import('../handlers/skill-handler.js');
+      const theme = new ThemeManager('default');
+      const handler = new SkillHandler(theme);
+      return handler.handleCommand(args);
+    }
+    case 'clear':
+      return 'Screen cleared';
+    case 'tools': {
+      const registry = new ToolRegistry();
+      const tools = registry.list();
+      return `Available tools (${tools.length}): ${tools.map((t: { name: string }) => t.name).join(', ')}`;
+    }
+    default:
+      return `Unknown command: /${command}. Type /help for available commands.`;
+  }
+}
 
 export class WebUIServer {
   private app: express.Application;
-  private server: any;
+  private server: HttpServer;
   private io: SocketIOServer;
   private port: number;
-  private sessions: Map<string, any> = new Map();
+  private sessions: Map<string, WebSession> = new Map();
   private toolRegistry: ToolRegistry;
   private checkpointManager: CheckpointManager;
-  private commandHandler: CommandHandler;
 
   constructor(port: number = 3000) {
     this.port = port;
@@ -32,11 +86,10 @@ export class WebUIServer {
         methods: ['GET', 'POST']
       }
     });
-    
+
     this.toolRegistry = new ToolRegistry();
     this.checkpointManager = new CheckpointManager();
-    this.commandHandler = new CommandHandler();
-    
+
     this.setupMiddleware();
     this.setupRoutes();
     this.setupSocketHandlers();
@@ -94,8 +147,8 @@ export class WebUIServer {
       try {
         const result = await this.toolRegistry.execute(tool, params);
         res.json({ success: true, result });
-      } catch (error: any) {
-        res.status(400).json({ success: false, error: error.message });
+      } catch (error: unknown) {
+        res.status(400).json({ success: false, error: error instanceof Error ? error.message : String(error) });
       }
     });
 
@@ -151,8 +204,8 @@ export class WebUIServer {
         try {
           const result = await this.toolRegistry.execute(name, params);
           socket.emit('tool:result', { name, success: true, result });
-        } catch (error: any) {
-          socket.emit('tool:result', { name, success: false, error: error.message });
+        } catch (error: unknown) {
+          socket.emit('tool:result', { name, success: false, error: error instanceof Error ? error.message : String(error) });
         }
       });
 
@@ -161,10 +214,10 @@ export class WebUIServer {
         const { command } = data;
         
         try {
-          const result = await this.commandHandler.handleCommand(command);
+          const result = await dispatchSlashCommand(command as string);
           socket.emit('command:result', { success: true, result });
-        } catch (error: any) {
-          socket.emit('command:result', { success: false, error: error.message });
+        } catch (error: unknown) {
+          socket.emit('command:result', { success: false, error: error instanceof Error ? error.message : String(error) });
         }
       });
 
@@ -175,8 +228,8 @@ export class WebUIServer {
         try {
           const content = await fs.readFile(filePath, 'utf-8');
           socket.emit('file:content', { path: filePath, content });
-        } catch (error: any) {
-          socket.emit('file:error', { path: filePath, error: error.message });
+        } catch (error: unknown) {
+          socket.emit('file:error', { path: filePath, error: error instanceof Error ? error.message : String(error) });
         }
       });
 
@@ -186,8 +239,8 @@ export class WebUIServer {
         try {
           await fs.writeFile(filePath, content);
           socket.emit('file:saved', { path: filePath });
-        } catch (error: any) {
-          socket.emit('file:error', { path: filePath, error: error.message });
+        } catch (error: unknown) {
+          socket.emit('file:error', { path: filePath, error: error instanceof Error ? error.message : String(error) });
         }
       });
 
@@ -238,12 +291,12 @@ export class WebUIServer {
   }
 
   // Broadcast message to all connected clients
-  broadcast(event: string, data: any): void {
+  broadcast(event: string, data: unknown): void {
     this.io.emit(event, data);
   }
 
   // Send message to specific session
-  sendToSession(sessionId: string, event: string, data: any): void {
+  sendToSession(sessionId: string, event: string, data: unknown): void {
     this.io.to(sessionId).emit(event, data);
   }
 
