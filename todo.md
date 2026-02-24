@@ -170,9 +170,9 @@
 - [ ] Support 50+ languages via tree-sitter parsers (currently regex-based)
 
 ### Prompt Caching
-- [ ] Implement prompt caching for supported providers (Anthropic, DeepSeek)
-- [ ] Cache system prompt, read-only files, and repo map between turns
-- [ ] Add keep-alive pings to maintain cache (`--cache-keepalive`)
+- [x] Implement prompt caching for supported providers (Anthropic, DeepSeek)
+- [x] Cache system prompt, read-only files, and repo map between turns
+- [x] Add keep-alive pings to maintain cache (`--cache-keepalive`)
 
 ---
 
@@ -190,7 +190,7 @@
 ### Model Selection UX
 - [x] Interactive model picker (`canvas models` or `/model` command)
 - [x] Model aliases and shortcuts (`--sonnet`, `--opus`, `--haiku`, `--4o`)
-- [ ] Show model leaderboard/benchmarks to help users choose
+- [x] Show model leaderboard/benchmarks to help users choose
 - [x] Fallback model configuration for overloaded providers
 - [x] Per-task model routing (use cheap models for simple tasks, premium for complex)
 
@@ -241,7 +241,7 @@
 - [x] Tab completion for file paths and commands (bash/zsh/fish)
 - [x] Rich terminal UI with syntax highlighting and markdown rendering
 - [x] Progress spinners and streaming token-by-token output
-- [ ] Image display in terminal (kitty/sixel protocol) — interface created
+- [x] Image display in terminal (kitty/sixel/iTerm2 protocol)
 
 ### Scripting & Automation
 - [x] Non-interactive/headless mode: `canvas -p "prompt"` for single-shot
@@ -251,7 +251,7 @@
 - [x] Exit codes for CI/CD integration (0=success, 1=error)
 
 ### Configuration
-- [ ] TOML/YAML config file support (currently JSON only)
+- [x] TOML/YAML config file support (JSON, TOML, YAML auto-detected)
 - [x] Environment variable support for all CLI options (`CANVAS_*`)
 - [x] `.canvasignore` file for excluding paths from AI context
 - [x] Coding conventions file (`.canvas/conventions.md`) auto-loaded as context

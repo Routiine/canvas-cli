@@ -498,6 +498,22 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
       if (ok) console.log(`Linked session to PR #${number}`);
       else console.error('Failed to link session to PR');
     });
+
+  // Model leaderboard (canvas leaderboard)
+  program
+    .command('leaderboard')
+    .description('Show model benchmark leaderboard')
+    .option('--sort <by>', 'Sort by: swe-bench, humaneval, price, speed', 'swe-bench')
+    .option('--provider <name>', 'Filter by provider name')
+    .option('--limit <n>', 'Show top N models', parseInt)
+    .action(async (opts: { sort?: string; provider?: string; limit?: number }) => {
+      const { formatLeaderboard } = await import('./commands/model-leaderboard.js');
+      console.log(formatLeaderboard({
+        sortBy: opts.sort as 'swe-bench' | 'humaneval' | 'price' | 'speed',
+        provider: opts.provider,
+        limit: opts.limit,
+      }));
+    });
 }
 
 function registerFeatureCommands(program: Command, featureManager: FeatureManager | null): void {

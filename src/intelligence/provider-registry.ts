@@ -16,6 +16,10 @@ export interface CompletionOptions {
   maxTokens?: number;
   temperature?: number;
   stream?: boolean;
+  /** Enable prompt caching for providers that support it (Anthropic, DeepSeek) */
+  enableCache?: boolean;
+  /** System blocks with cache_control breakpoints (replaces plain system string) */
+  systemBlocks?: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>;
 }
 
 export interface Provider {
@@ -71,18 +75,20 @@ export class ClaudeProvider implements Provider {
   async complete(messages: Message[], options: CompletionOptions = {}): Promise<string> {
     const client = await this.getClient();
     const model = options.model || this.getDefaultModel();
-    
+
     const systemMsg = messages.find(m => m.role === 'system');
-    // Anthropic SDK only accepts 'user' | 'assistant' roles in messages array
     const chatMessages = messages
       .filter(m => m.role !== 'system')
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+    // Use cache_control system blocks if provided (for prompt caching)
+    const systemParam: any = options.systemBlocks || systemMsg?.content;
 
     const response = await client.messages.create({
       model,
       max_tokens: options.maxTokens || 8192,
       temperature: options.temperature ?? 0.7,
-      system: systemMsg?.content,
+      system: systemParam,
       messages: chatMessages,
     });
 

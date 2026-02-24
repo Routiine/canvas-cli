@@ -13,10 +13,12 @@ export interface RoutingLogEntry {
   session_id: string;
   task_hash: string;
   complexity_score: number;
-  routed_to: 'local' | 'claude' | 'openai';
+  routed_to: 'local' | 'claude' | 'openai' | string;
   cost_usd: number;
   tokens_in: number;
   tokens_out: number;
+  cache_creation_tokens?: number;
+  cache_read_tokens?: number;
 }
 
 let db: Database.Database | null = null;
@@ -41,6 +43,8 @@ function getDb(): Database.Database {
       cost_usd REAL NOT NULL DEFAULT 0,
       tokens_in INTEGER NOT NULL DEFAULT 0,
       tokens_out INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_routing_session ON routing_log(session_id);
@@ -85,8 +89,8 @@ export class CostTracker {
     this.sessionTokensOut += entry.tokens_out;
     
     database.prepare(`
-      INSERT INTO routing_log (session_id, task_hash, complexity_score, routed_to, cost_usd, tokens_in, tokens_out, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO routing_log (session_id, task_hash, complexity_score, routed_to, cost_usd, tokens_in, tokens_out, cache_creation_tokens, cache_read_tokens, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       this.sessionId,
       entry.task_hash || hashTask(''),
@@ -95,6 +99,8 @@ export class CostTracker {
       entry.cost_usd,
       entry.tokens_in,
       entry.tokens_out,
+      entry.cache_creation_tokens || 0,
+      entry.cache_read_tokens || 0,
       Date.now()
     );
   }

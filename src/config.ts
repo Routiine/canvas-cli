@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { Config } from './types.js';
+import { findConfigFile, loadConfigFile, saveConfigFile } from './config/config-formats.js';
 
 const CONFIG_DIR = path.join(os.homedir(), '.canvas-cli');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
@@ -141,10 +142,29 @@ export function loadConfig(): Config {
       fs.mkdirSync(CONFIG_DIR, { recursive: true });
     }
 
+    // Try multi-format: config.json, config.toml, config.yaml, config.yml
+    const found = findConfigFile(CONFIG_DIR, 'config');
+    if (found) {
+      const userConfig = loadConfigFile(found.path);
+      if (userConfig) {
+        return validateConfig(userConfig);
+      }
+    }
+
+    // Also check project-level .canvas/ directory
+    const projectConfig = findConfigFile(path.join(process.cwd(), '.canvas'), 'config');
+    if (projectConfig) {
+      const projectData = loadConfigFile(projectConfig.path);
+      if (projectData) {
+        // Project config merges on top of user config
+        return validateConfig(projectData);
+      }
+    }
+
+    // Fallback to legacy JSON path
     if (fs.existsSync(CONFIG_FILE)) {
       const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
       const userConfig = JSON.parse(data);
-      // Validate and merge with safe defaults
       return validateConfig(userConfig);
     }
   } catch (error) {
