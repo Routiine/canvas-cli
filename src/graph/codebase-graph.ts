@@ -9,7 +9,7 @@ import path from 'path';
 import chalk from 'chalk';
 import { walkSourceFile } from './ast-walker.js';
 import { enrichNodes } from './git-enricher.js';
-import { graphStorage } from './graph-storage.js';
+import { getGraphStorage, type GraphNode } from './graph-storage.js';
 import { startGraphWatcher, stopGraphWatcher } from './graph-watcher.js';
 
 export async function buildIndex(rootDir: string = process.cwd(), verbose = false): Promise<string[]> {
@@ -34,9 +34,9 @@ export async function buildIndex(rootDir: string = process.cwd(), verbose = fals
         const content = await fs.readFile(filePath, 'utf-8');
         const { nodes, edges } = walkSourceFile(filePath, content);
         const enriched = await enrichNodes(nodes);
-        graphStorage.deleteFileNodes(filePath);
-        graphStorage.upsertNodes(enriched);
-        graphStorage.upsertEdges(edges);
+        getGraphStorage().deleteFileNodes(filePath);
+        getGraphStorage().upsertNodes(enriched);
+        getGraphStorage().upsertEdges(edges);
         processed++;
 
         if (verbose && processed % 20 === 0) {
@@ -48,7 +48,7 @@ export async function buildIndex(rootDir: string = process.cwd(), verbose = fals
     }));
   }
 
-  const stats = graphStorage.getStats();
+  const stats = getGraphStorage().getStats();
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
   if (verbose) {
@@ -67,14 +67,14 @@ export function stopWatching(): void {
   stopGraphWatcher();
 }
 
-export function querySymbol(name: string): ReturnType<typeof graphStorage.findSymbol> {
-  return graphStorage.findSymbol(name);
+export function querySymbol(name: string): GraphNode[] {
+  return getGraphStorage().findSymbol(name);
 }
 
 export function getFileContext(filePath: string, symbolName?: string) {
-  return graphStorage.getContext(filePath, symbolName);
+  return getGraphStorage().getContext(filePath, symbolName);
 }
 
 export function getStats() {
-  return graphStorage.getStats();
+  return getGraphStorage().getStats();
 }

@@ -622,5 +622,9 @@ export class BusinessAnalystAgent extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const businessAnalystAgent = new BusinessAnalystAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _businessAnalystAgent: BusinessAnalystAgent | null = null;
+export function getBusinessAnalystAgent(): BusinessAnalystAgent {
+  if (!_businessAnalystAgent) _businessAnalystAgent = new BusinessAnalystAgent();
+  return _businessAnalystAgent;
+}

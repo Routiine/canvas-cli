@@ -870,5 +870,9 @@ function gamma(z: number): number {
   return Math.sqrt(2 * Math.PI) * Math.pow(t, z + 0.5) * Math.exp(-t) * x;
 }
 
-// Export singleton instance
-export const swarmIntelligence = new SwarmIntelligence();
+// Lazy singleton getter (avoids instantiation at import time)
+let _swarmIntelligence: SwarmIntelligence | null = null;
+export function getSwarmIntelligence(): SwarmIntelligence {
+  if (!_swarmIntelligence) _swarmIntelligence = new SwarmIntelligence();
+  return _swarmIntelligence;
+}

@@ -652,5 +652,9 @@ export class CoordinationPatterns {
   };
 }
 
-// Export singleton instance
-export const communicationHub = new AgentCommunicationHub();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _communicationHub: AgentCommunicationHub | null = null;
+export function getCommunicationHub(): AgentCommunicationHub {
+  if (!_communicationHub) _communicationHub = new AgentCommunicationHub();
+  return _communicationHub;
+}

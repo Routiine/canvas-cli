@@ -225,4 +225,9 @@ export class GraphStorage {
   }
 }
 
-export const graphStorage = new GraphStorage();
+// Lazy singleton getter (avoids instantiation at import time)
+let _graphStorage: GraphStorage | null = null;
+export function getGraphStorage(): GraphStorage {
+  if (!_graphStorage) _graphStorage = new GraphStorage();
+  return _graphStorage;
+}

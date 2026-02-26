@@ -1153,5 +1153,9 @@ const result = useMemo(() => expensiveCalculation(data), [data]);`
   }
 }
 
-// Export singleton instance
-export const performanceAnalyst = new PerformanceAnalystAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _performanceAnalyst: PerformanceAnalystAgent | null = null;
+export function getPerformanceAnalyst(): PerformanceAnalystAgent {
+  if (!_performanceAnalyst) _performanceAnalyst = new PerformanceAnalystAgent();
+  return _performanceAnalyst;
+}

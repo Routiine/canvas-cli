@@ -2,7 +2,8 @@ import { BaseTool } from './base.js';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
-import { encode } from 'gpt-3-encoder';
+// Lightweight token estimation (~4 chars per token) to avoid loading heavy gpt-3-encoder at startup
+function encode(text: string): number[] { return new Array(Math.ceil(text.length / 4)); }
 import crypto from 'crypto';
 
 // Smart Context Manager with RAG support

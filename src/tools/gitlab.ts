@@ -406,5 +406,9 @@ export class GitLabIntegration {
   }
 }
 
-// Export singleton instance
-export const gitlab = new GitLabIntegration();
+// Lazy singleton getter (avoids instantiation at import time)
+let _gitlab: GitLabIntegration | null = null;
+export function getGitLab(): GitLabIntegration {
+  if (!_gitlab) _gitlab = new GitLabIntegration();
+  return _gitlab;
+}

@@ -279,5 +279,9 @@ export class TokenMetrics {
   }
 }
 
-// Global metrics instance
-export const globalTokenMetrics = new TokenMetrics();
+// Lazy singleton getter (avoids instantiation at import time)
+let _globalTokenMetrics: TokenMetrics | null = null;
+export function getGlobalTokenMetrics(): TokenMetrics {
+  if (!_globalTokenMetrics) _globalTokenMetrics = new TokenMetrics();
+  return _globalTokenMetrics;
+}

@@ -6,7 +6,7 @@
 
 import ts from 'typescript';
 import path from 'path';
-import { graphStorage } from './graph-storage.js';
+import { getGraphStorage } from './graph-storage.js';
 
 export type SourceKind = 'param' | 'env' | 'http_request' | 'user_input' | 'file_read';
 export type SinkKind = 'return' | 'db_write' | 'fs_write' | 'http_response' | 'log' | 'exec';

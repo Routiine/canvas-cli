@@ -8,7 +8,7 @@ import { z } from 'zod';
 import chalk from 'chalk';
 import { AgentConfigurationSystem } from './config/agent-config.js';
 import { PromptTemplateSystem } from './config/prompt-templates.js';
-import { ModelManager } from '../models/model-manager.js';
+import { getModelManager, ModelManagerSingleton } from '../models/model-manager.js';
 import { StoryParser } from './parsers/story-parser.js';
 import { ContextEmbedder } from './embeddings/context-embedder.js';
 import { StoryValidator } from './validators/story-validator.js';
@@ -178,7 +178,7 @@ export type BacklogRefinement = z.infer<typeof BacklogRefinementSchema>;
 export class ScrumMasterAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: typeof ModelManager;
+  private modelManager: ModelManagerSingleton;
   private storyParser: StoryParser;
   private contextEmbedder: ContextEmbedder;
   private storyValidator: StoryValidator;
@@ -193,7 +193,7 @@ export class ScrumMasterAgent extends EventEmitter {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = ModelManager;
+    this.modelManager = getModelManager();
     this.storyParser = new StoryParser();
     this.contextEmbedder = new ContextEmbedder();
     this.storyValidator = new StoryValidator();
@@ -949,5 +949,9 @@ Focus on team empowerment, continuous improvement, and delivering value.`,
   }
 }
 
-// Export singleton instance
-export const scrumMasterAgent = new ScrumMasterAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _scrumMasterAgent: ScrumMasterAgent | null = null;
+export function getScrumMasterAgent(): ScrumMasterAgent {
+  if (!_scrumMasterAgent) _scrumMasterAgent = new ScrumMasterAgent();
+  return _scrumMasterAgent;
+}

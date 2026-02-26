@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import fs from 'fs-extra';
 import * as path from 'path';
 import { errorHandler } from './error-handler.js';
-import { performanceMonitor } from './performance-monitor.js';
+import { getPerformanceMonitor } from './performance-monitor.js';
 
 export interface RecoveryState {
   timestamp: Date;
@@ -96,7 +96,7 @@ export class RecoveryManager extends EventEmitter {
         context: {}, // Will be populated by context loader
         toolState: {}, // Will be populated by tool executor
         sessionFlags: {}, // Will be populated by confirmation service
-        metrics: performanceMonitor.getSummary()
+        metrics: getPerformanceMonitor().getSummary()
       };
 
       // Emit event to gather state from components
@@ -345,7 +345,7 @@ export class RecoveryManager extends EventEmitter {
   private async exportMetrics(): Promise<void> {
     // Export performance metrics
     const filepath = path.join(this.recoveryPath, `metrics-${Date.now()}.json`);
-    await performanceMonitor.exportMetrics(filepath);
+    await getPerformanceMonitor().exportMetrics(filepath);
   }
 
   private async basicRecovery(): Promise<void> {

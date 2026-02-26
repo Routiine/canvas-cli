@@ -489,16 +489,20 @@ export class ConfigManager {
   }
 }
 
-// Export singleton instance
-export const configManager = new ConfigManager();
+// Lazy singleton getter (avoids instantiation at import time)
+let _configManager: ConfigManager | null = null;
+export function getConfigManager(): ConfigManager {
+  if (!_configManager) _configManager = new ConfigManager();
+  return _configManager;
+}
 
 // Convenience functions
-export const getConfig = () => configManager.getConfig();
-export const getConfigValue = <T = any>(path: string, defaultValue?: T): T => 
-  configManager.get(path, defaultValue);
-export const setConfigValue = (path: string, value: any) => 
-  configManager.set(path, value);
-export const updateConfig = (updates: Partial<Config>) => 
-  configManager.update(updates);
-export const onConfigChange = (listener: (config: Config) => void) => 
-  configManager.onChange(listener);
+export const getConfig = () => getConfigManager().getConfig();
+export const getConfigValue = <T = any>(path: string, defaultValue?: T): T =>
+  getConfigManager().get(path, defaultValue);
+export const setConfigValue = (path: string, value: any) =>
+  getConfigManager().set(path, value);
+export const updateConfig = (updates: Partial<Config>) =>
+  getConfigManager().update(updates);
+export const onConfigChange = (listener: (config: Config) => void) =>
+  getConfigManager().onChange(listener);

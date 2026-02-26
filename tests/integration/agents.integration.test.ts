@@ -9,7 +9,7 @@ import { SolutionsArchitectAgent } from '../../src/agents/solutions-architect';
 import { ScrumMasterAgent } from '../../src/agents/scrum-master';
 import { DeveloperAgent } from '../../src/agents/developer';
 import { QAEngineerAgent } from '../../src/agents/qa-engineer';
-import { ModelManager } from '../../src/models/model-manager';
+import { getModelManager } from '../../src/models/model-manager';
 
 describe('Canvas CLI Agents Integration', () => {
   let businessAnalyst: BusinessAnalystAgent;
@@ -21,7 +21,7 @@ describe('Canvas CLI Agents Integration', () => {
 
   beforeAll(async () => {
     // Mock ModelManager to prevent real Ollama calls (which would timeout without a running server)
-    jest.spyOn(ModelManager, 'generateResponse').mockResolvedValue('invalid-json-triggers-fallback' as never);
+    jest.spyOn(getModelManager(), 'generateResponse').mockResolvedValue('invalid-json-triggers-fallback' as never);
 
     // Initialize all agents
     businessAnalyst = new BusinessAnalystAgent();

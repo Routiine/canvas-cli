@@ -3,7 +3,7 @@ import * as os from 'os';
 import fs from 'fs-extra';
 import * as path from 'path';
 import { performanceConfig } from '../config/performance.js';
-import { globalTokenMetrics, TokenMetrics } from './token-counter.js';
+import { getGlobalTokenMetrics, TokenMetrics } from './token-counter.js';
 
 export interface PerformanceMetrics {
   timestamp: Date;
@@ -150,7 +150,7 @@ export class PerformanceMonitor extends EventEmitter {
     const cpuUsage = this.getCPUUsage();
     const memoryInfo = this.getMemoryInfo();
     const processInfo = this.getProcessInfo();
-    const tokenMetrics = globalTokenMetrics.getSummary();
+    const tokenMetrics = getGlobalTokenMetrics().getSummary();
     
     return {
       timestamp: new Date(),
@@ -390,7 +390,7 @@ export class PerformanceMonitor extends EventEmitter {
     alertCount: number;
   } {
     const current = this.getCurrentMetrics();
-    const tokenMetrics = globalTokenMetrics.getSummary();
+    const tokenMetrics = getGlobalTokenMetrics().getSummary();
     
     return {
       uptime: Date.now() - this.startTime,
@@ -464,7 +464,7 @@ export class PerformanceMonitor extends EventEmitter {
     this.toolDuration = 0;
     this.toolSuccesses = 0;
     this.startTime = Date.now();
-    globalTokenMetrics.reset();
+    getGlobalTokenMetrics().reset();
   }
 
   /**
@@ -552,6 +552,15 @@ export class PerformanceDashboard {
   }
 }
 
-// Export singleton instance
-export const performanceMonitor = PerformanceMonitor.getInstance();
-export const performanceDashboard = new PerformanceDashboard();
+// Lazy singleton getters (avoids instantiation at import time)
+let _performanceMonitor: PerformanceMonitor | null = null;
+export function getPerformanceMonitor(): PerformanceMonitor {
+  if (!_performanceMonitor) _performanceMonitor = PerformanceMonitor.getInstance();
+  return _performanceMonitor;
+}
+
+let _performanceDashboard: PerformanceDashboard | null = null;
+export function getPerformanceDashboard(): PerformanceDashboard {
+  if (!_performanceDashboard) _performanceDashboard = new PerformanceDashboard();
+  return _performanceDashboard;
+}

@@ -8,7 +8,7 @@ import fs from 'fs-extra';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { errorHandler } from './error-handler.js';
-import { performanceMonitor } from './performance-monitor.js';
+import { getPerformanceMonitor } from './performance-monitor.js';
 
 export interface Checkpoint {
   id: string;
@@ -180,7 +180,7 @@ export class EnhancedRecoveryManager extends EventEmitter {
     });
 
     // Handle performance degradation
-    performanceMonitor.on('performance-degradation', async ({ metric }) => {
+    getPerformanceMonitor().on('performance-degradation', async ({ metric }) => {
       if (this.options.autoRollback) {
         await this.rollbackToLastStable();
       }
@@ -466,7 +466,7 @@ export class EnhancedRecoveryManager extends EventEmitter {
       context: await this.captureContext(),
       toolState: await this.captureToolState(),
       sessionFlags: await this.captureSessionFlags(),
-      metrics: performanceMonitor.getCurrentMetrics(),
+      metrics: getPerformanceMonitor().getCurrentMetrics(),
       files: await this.captureFileSnapshots(),
       environment: await this.captureEnvironment(),
       memory: this.captureMemorySnapshot()

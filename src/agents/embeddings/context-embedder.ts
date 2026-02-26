@@ -5,7 +5,7 @@
 
 import { EventEmitter } from 'events';
 import chalk from 'chalk';
-import { ModelManager } from '../../models/model-manager.js';
+import { getModelManager, ModelManagerSingleton } from '../../models/model-manager.js';
 
 export interface EmbeddingContext {
   project?: {
@@ -70,13 +70,13 @@ export interface EnrichedStory {
  * Context Embedder Implementation
  */
 export class ContextEmbedder extends EventEmitter {
-  private modelManager: typeof ModelManager;
+  private modelManager: ModelManagerSingleton;
   private contextCache: Map<string, EmbeddingContext> = new Map();
   private embeddingCache: Map<string, number[]> = new Map();
   
   constructor() {
     super();
-    this.modelManager = ModelManager;
+    this.modelManager = getModelManager();
   }
   
   async initialize(): Promise<void> {
@@ -663,5 +663,9 @@ export class ContextEmbedder extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const contextEmbedder = new ContextEmbedder();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _contextEmbedder: ContextEmbedder | null = null;
+export function getContextEmbedder(): ContextEmbedder {
+  if (!_contextEmbedder) _contextEmbedder = new ContextEmbedder();
+  return _contextEmbedder;
+}

@@ -11,7 +11,7 @@ process.title = 'canvas';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { loadConfig, saveConfig } from './config.js';
-import { ModelManager } from './models/model-manager.js';
+import { getModelManager } from './models/model-manager.js';
 import { initializeCanvasFeatures, CanvasFeatures, type FeatureManager } from './features/index.js';
 import { initializeSkillSystem } from './skills/skillSystem.js';
 
@@ -134,7 +134,7 @@ async function initializeSystems(): Promise<FeatureManager | null> {
   // Register default model
   const defaultModel = config.defaultModel || config.ollama?.defaultModel;
   if (defaultModel) {
-    ModelManager.registerDefaultAliasFromConfig(defaultModel);
+    getModelManager().registerDefaultAliasFromConfig(defaultModel);
   }
 
   // Initialize features (optional)
@@ -174,14 +174,14 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
     .argument('[key]', 'Config key (for set command)')
     .argument('[value]', 'Config value (for set command)')
     .action(async (action?: string, key?: string, value?: string) => {
-      const { configCommand } = await import('./commands/config-command.js');
+      const { getConfigCommand } = await import('./commands/config-command.js');
       let args = '';
       if (action) {
         args = action;
         if (key) args += ` ${key}`;
         if (value) args += ` ${value}`;
       }
-      const result = await configCommand.execute(args);
+      const result = await getConfigCommand().execute(args);
       if (result) console.log(result);
     });
 
@@ -196,11 +196,11 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
     .option('-l, --list', 'List available recipes')
     .option('-v, --variables <vars>', 'Variables for recipe (JSON format)')
     .action(async (name?: string, options?: { list?: boolean; variables?: string }) => {
-      const { recipeCommand } = await import('./commands/recipe-command.js');
+      const { getRecipeCommand } = await import('./commands/recipe-command.js');
       let args = '';
       if (options?.list) args = 'list';
       else if (name) args = `run ${name} ${options?.variables || ''}`;
-      const result = await recipeCommand.execute(args.trim());
+      const result = await getRecipeCommand().execute(args.trim());
       if (result) console.log(result);
     });
 
@@ -616,7 +616,7 @@ function registerFeatureCommands(program: Command, featureManager: FeatureManage
     .command('palette')
     .description('Open smart command palette (Ctrl+P)')
     .action(async () => {
-      const palette = CanvasFeatures.getProductivity().commandPalette;
+      const palette = CanvasFeatures.getProductivity()!.commandPalette;
       await palette.open();
     });
 
@@ -626,7 +626,7 @@ function registerFeatureCommands(program: Command, featureManager: FeatureManage
     .argument('[action]', 'Action: create, open, list, execute')
     .argument('[name]', 'Notebook name')
     .action(async (action?: string, name?: string) => {
-      const notebooks = CanvasFeatures.getProductivity().notebooks;
+      const notebooks = CanvasFeatures.getProductivity()!.notebooks;
       if (action === 'create' && name) {
         const nb = notebooks.createNotebook(name);
         console.log(uiTheme.dim(`Created notebook: ${nb.name}`));
@@ -643,7 +643,7 @@ function registerFeatureCommands(program: Command, featureManager: FeatureManage
     .description('Start live session sharing')
     .option('-n, --name <name>', 'Session name', 'Canvas Session')
     .action(async (options: { name: string }) => {
-      const sharing = CanvasFeatures.getCollaboration().sessionSharing;
+      const sharing = CanvasFeatures.getCollaboration()!.sessionSharing;
       const session = await sharing.startSharing(options.name);
       console.log(uiTheme.info(`Session ID: ${session.id}`));
     });
@@ -653,7 +653,7 @@ function registerFeatureCommands(program: Command, featureManager: FeatureManage
     .description('Control voice commands')
     .argument('[action]', 'Action: start, stop, train')
     .action(async (action?: string) => {
-      const voice = CanvasFeatures.getInterfaces().voiceCommand;
+      const voice = CanvasFeatures.getInterfaces()!.voiceCommand;
       if (action === 'start') await voice.startListening();
       else if (action === 'stop') await voice.stopListening();
       else console.log('Usage: canvas voice <start|stop|train>');
@@ -663,7 +663,7 @@ function registerFeatureCommands(program: Command, featureManager: FeatureManage
     .command('monitor')
     .description('Open performance monitoring dashboard')
     .action(async () => {
-      const monitor = CanvasFeatures.getSecurity().performanceMonitor;
+      const monitor = CanvasFeatures.getSecurity()!.performanceMonitor;
       await monitor.start();
       console.log(uiTheme.success('Performance monitoring started'));
     });
@@ -673,7 +673,7 @@ function registerFeatureCommands(program: Command, featureManager: FeatureManage
     .description('Manage incident response mode')
     .argument('[action]', 'Action: activate, deactivate, status')
     .action(async (action?: string) => {
-      const incident = CanvasFeatures.getSecurity().incidentResponse;
+      const incident = CanvasFeatures.getSecurity()!.incidentResponse;
       if (action === 'activate') incident.activate();
       else if (action === 'deactivate') incident.deactivate();
       else if (action === 'status') console.log(uiTheme.info('Incident response mode status checked'));
@@ -685,7 +685,7 @@ function registerFeatureCommands(program: Command, featureManager: FeatureManage
     .description('Manage persistent workspace state')
     .argument('[action]', 'Action: save, restore, list')
     .action(async (action?: string) => {
-      const workspace = CanvasFeatures.getProductivity().workspaceState;
+      const workspace = CanvasFeatures.getProductivity()!.workspaceState;
       if (action === 'save') {
         const ws = await workspace.createWorkspace('current');
         console.log(uiTheme.success(`Workspace saved: ${ws.id}`));
@@ -709,7 +709,7 @@ function registerFeatureCommands(program: Command, featureManager: FeatureManage
     .argument('[action]', 'Action: search, add, list')
     .argument('[query]', 'Search query or content')
     .action(async (action?: string, query?: string) => {
-      const kb = CanvasFeatures.getCollaboration().knowledgeBase;
+      const kb = CanvasFeatures.getCollaboration()!.knowledgeBase;
       if (action === 'search' && query) {
         const results = await kb.search({ text: query, limit: 10 });
         results.forEach((r: { item?: { title?: string } }) => console.log(`- ${r.item?.title || 'Result'}`));
@@ -722,6 +722,33 @@ function registerFeatureCommands(program: Command, featureManager: FeatureManage
 }
 
 async function main(): Promise<void> {
+  // Fast path: skip heavy initialization for --help and --version
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h') || args.includes('--version') || args.includes('-V')) {
+    const program = new Command();
+    program
+      .name('canvas')
+      .description('Canvas CLI - Production-ready AI assistant with advanced tools (defaults to chat mode)')
+      .version(VERSION);
+    // Register minimal command stubs for help output
+    program.command('chat').description('Start interactive AI chat (default)');
+    program.command('models').description('List and manage AI models');
+    program.command('config').description('Configure Canvas CLI settings interactively');
+    program.command('init').description('Initialize Canvas CLI in current project');
+    program.command('agent').description('Run autonomous AI agents');
+    program.command('tools').description('List and manage available tools');
+    program.command('edit').description('AI-powered file editing with diff review');
+    program.command('test').description('Generate and run tests');
+    program.command('review-pr').description('AI code review for pull requests');
+    program.command('memory').description('Manage persistent memory');
+    program.command('index').description('Build and query codebase index');
+    program.command('daemon').description('Background analysis daemon');
+    program.command('finetune').description('Fine-tuning pipeline');
+    program.command('mcp').description('MCP server management');
+    await program.parseAsync();
+    return;
+  }
+
   // Setup initial config if needed
   await setupInitialConfig();
 

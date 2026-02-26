@@ -1066,5 +1066,9 @@ Assess: performance, scalability, maintainability, cost, and team expertise.`,
   }
 }
 
-// Export singleton instance
-export const promptTemplateSystem = new PromptTemplateSystem();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _promptTemplateSystem: PromptTemplateSystem | null = null;
+export function getPromptTemplateSystem(): PromptTemplateSystem {
+  if (!_promptTemplateSystem) _promptTemplateSystem = new PromptTemplateSystem();
+  return _promptTemplateSystem;
+}

@@ -605,5 +605,9 @@ export class EnhancedErrorHandler extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const enhancedErrorHandler = new EnhancedErrorHandler();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _enhancedErrorHandler: EnhancedErrorHandler | null = null;
+export function getEnhancedErrorHandler(): EnhancedErrorHandler {
+  if (!_enhancedErrorHandler) _enhancedErrorHandler = new EnhancedErrorHandler();
+  return _enhancedErrorHandler;
+}

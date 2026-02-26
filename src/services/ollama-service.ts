@@ -384,9 +384,13 @@ export class OllamaService extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const ollamaService = new OllamaService({
-  baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
-  timeout: parseInt(process.env.OLLAMA_TIMEOUT || '120000'),
-  defaultModel: process.env.OLLAMA_MODEL || 'llama3.2:latest'
-});
+// Lazy singleton getter (avoids instantiation at import time)
+let _ollamaService: OllamaService | null = null;
+export function getOllamaService(): OllamaService {
+  if (!_ollamaService) _ollamaService = new OllamaService({
+    baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+    timeout: parseInt(process.env.OLLAMA_TIMEOUT || '120000'),
+    defaultModel: process.env.OLLAMA_MODEL || 'llama3.2:latest'
+  });
+  return _ollamaService;
+}

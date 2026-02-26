@@ -478,5 +478,9 @@ export class JiraIntegration {
   }
 }
 
-// Export singleton instance
-export const jira = new JiraIntegration();
+// Lazy singleton getter (avoids instantiation at import time)
+let _jira: JiraIntegration | null = null;
+export function getJira(): JiraIntegration {
+  if (!_jira) _jira = new JiraIntegration();
+  return _jira;
+}

@@ -1132,5 +1132,9 @@ interface PheromoneTrail {
   timestamp: Date;
 }
 
-// Export singleton instance
-export const queenAI = new QueenAI();
+// Lazy singleton getter (avoids instantiation at import time)
+let _queenAI: QueenAI | null = null;
+export function getQueenAI(): QueenAI {
+  if (!_queenAI) _queenAI = new QueenAI();
+  return _queenAI;
+}

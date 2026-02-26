@@ -658,5 +658,9 @@ export class ImplementationStorage extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const implementationStorage = new ImplementationStorage();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _implementationStorage: ImplementationStorage | null = null;
+export function getImplementationStorage(): ImplementationStorage {
+  if (!_implementationStorage) _implementationStorage = new ImplementationStorage();
+  return _implementationStorage;
+}

@@ -576,5 +576,9 @@ export class TokenOptimizer {
   }
 }
 
-// Export singleton instance
-export const tokenOptimizer = new TokenOptimizer();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _tokenOptimizer: TokenOptimizer | null = null;
+export function getTokenOptimizer(): TokenOptimizer {
+  if (!_tokenOptimizer) _tokenOptimizer = new TokenOptimizer();
+  return _tokenOptimizer;
+}

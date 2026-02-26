@@ -5,7 +5,7 @@
 
 import { EventEmitter } from 'events';
 import chalk from 'chalk';
-import { ModelManager } from '../../models/model-manager.js';
+import { getModelManager, ModelManagerSingleton } from '../../models/model-manager.js';
 
 export interface GenerationOptions {
   language: string;
@@ -36,12 +36,12 @@ export interface ComponentSpec {
  * Code Generator Implementation
  */
 export class CodeGenerator extends EventEmitter {
-  private modelManager: typeof ModelManager;
+  private modelManager: ModelManagerSingleton;
   private templates: Map<string, string> = new Map();
   
   constructor() {
     super();
-    this.modelManager = ModelManager;
+    this.modelManager = getModelManager();
     this.initializeTemplates();
   }
   
@@ -766,5 +766,9 @@ ${(dataModel.tables || []).map((table: any) => `  await knex('${table.name}').de
   }
 }
 
-// Export singleton instance
-export const codeGenerator = new CodeGenerator();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _codeGenerator: CodeGenerator | null = null;
+export function getCodeGenerator(): CodeGenerator {
+  if (!_codeGenerator) _codeGenerator = new CodeGenerator();
+  return _codeGenerator;
+}

@@ -504,5 +504,9 @@ Always follow industry best practices and architectural principles (SOLID, DRY, 
   }
 }
 
-// Export singleton instance
-export const agentConfigSystem = new AgentConfigurationSystem();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _agentConfigSystem: AgentConfigurationSystem | null = null;
+export function getAgentConfigSystem(): AgentConfigurationSystem {
+  if (!_agentConfigSystem) _agentConfigSystem = new AgentConfigurationSystem();
+  return _agentConfigSystem;
+}

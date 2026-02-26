@@ -414,5 +414,9 @@ export class ProviderRegistry {
   }
 }
 
-// Export singleton instance
-export const providerRegistry = new ProviderRegistry();
+// Lazy singleton getter (avoids instantiation at import time)
+let _providerRegistry: ProviderRegistry | null = null;
+export function getProviderRegistry(): ProviderRegistry {
+  if (!_providerRegistry) _providerRegistry = new ProviderRegistry();
+  return _providerRegistry;
+}

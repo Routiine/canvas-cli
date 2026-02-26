@@ -7,7 +7,7 @@ import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import * as crypto from 'crypto';
 import { User } from './multi-user-system.js';
-import { rbacSystem } from './rbac-system.js';
+import { getRbacSystem } from './rbac-system.js';
 
 export interface Workspace {
   id: string;
@@ -226,7 +226,7 @@ export class SharedWorkspaceManager extends EventEmitter {
     this.logActivity(workspace.id, ownerId, 'workspace.created', 'workspace', workspace.id);
 
     // Assign workspace role
-    await rbacSystem.assignRole(ownerId, 'owner', 'system', workspace.id);
+    await getRbacSystem().assignRole(ownerId, 'owner', 'system', workspace.id);
 
     this.emit('workspace:created', workspace);
     return workspace;
@@ -370,7 +370,7 @@ export class SharedWorkspaceManager extends EventEmitter {
     invite.status = 'accepted';
 
     // Assign role in RBAC
-    await rbacSystem.assignRole(userId, invite.role, invite.invitedBy, workspace.id);
+    await getRbacSystem().assignRole(userId, invite.role, invite.invitedBy, workspace.id);
 
     // Log activity
     this.logActivity(workspace.id, userId, 'member.joined', 'member', userId);
@@ -397,9 +397,9 @@ export class SharedWorkspaceManager extends EventEmitter {
     workspace.members = workspace.members.filter(m => m.userId !== userId);
 
     // Revoke role in RBAC
-    await rbacSystem.revokeRole(userId, 'viewer', workspaceId);
-    await rbacSystem.revokeRole(userId, 'editor', workspaceId);
-    await rbacSystem.revokeRole(userId, 'admin', workspaceId);
+    await getRbacSystem().revokeRole(userId, 'viewer', workspaceId);
+    await getRbacSystem().revokeRole(userId, 'editor', workspaceId);
+    await getRbacSystem().revokeRole(userId, 'admin', workspaceId);
 
     // Log activity
     this.logActivity(workspaceId, removedBy, 'member.removed', 'member', userId);
@@ -685,7 +685,7 @@ export class SharedWorkspaceManager extends EventEmitter {
     if (!member) return false;
 
     // Check with RBAC system
-    const result = await rbacSystem.checkPermission({
+    const result = await getRbacSystem().checkPermission({
       userId,
       resource: 'workspace',
       action,
@@ -714,7 +714,7 @@ export class SharedWorkspaceManager extends EventEmitter {
     if (collaborator && collaborator.permissions.has(action)) return true;
 
     // Check with RBAC system
-    const result = await rbacSystem.checkPermission({
+    const result = await getRbacSystem().checkPermission({
       userId,
       resource: 'project',
       action,
@@ -793,5 +793,9 @@ export class SharedWorkspaceManager extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const sharedWorkspaceManager = new SharedWorkspaceManager();
+// Lazy singleton getter (avoids instantiation at import time)
+let _sharedWorkspaceManager: SharedWorkspaceManager | null = null;
+export function getSharedWorkspaceManager(): SharedWorkspaceManager {
+  if (!_sharedWorkspaceManager) _sharedWorkspaceManager = new SharedWorkspaceManager();
+  return _sharedWorkspaceManager;
+}

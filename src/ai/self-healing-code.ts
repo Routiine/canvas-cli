@@ -997,5 +997,9 @@ export class SelfHealingCodeSystem extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const selfHealingCode = new SelfHealingCodeSystem();
+// Lazy singleton getter (avoids instantiation at import time)
+let _selfHealingCode: SelfHealingCodeSystem | null = null;
+export function getSelfHealingCode(): SelfHealingCodeSystem {
+  if (!_selfHealingCode) _selfHealingCode = new SelfHealingCodeSystem();
+  return _selfHealingCode;
+}

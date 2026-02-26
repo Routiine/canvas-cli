@@ -4,7 +4,7 @@
  */
 
 import { AdvancedTokenizer } from '../tokenization/advanced-tokenizer.js';
-import { ModelManager, ModelCapabilities } from '../models/model-manager.js';
+import { getModelManager, ModelManagerSingleton, ModelCapabilities } from '../models/model-manager.js';
 
 export interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -79,7 +79,7 @@ export class ContextManager {
    */
   analyzeContext(contextWindow: ContextWindow): ContextAnalysis {
     // Get model capabilities
-    const capabilities = ModelManager.getCapabilities(contextWindow.modelName);
+    const capabilities = getModelManager().getCapabilities(contextWindow.modelName);
     const contextLimit = capabilities?.contextLimit || 128000;
 
     // Count tokens

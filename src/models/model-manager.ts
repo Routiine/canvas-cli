@@ -522,22 +522,26 @@ class ModelManagerSingleton {
 // Export the class for type usage
 export { ModelManagerSingleton };
 
-// Export singleton instance
-export const ModelManager = new ModelManagerSingleton();
+// Lazy singleton getter (avoids instantiation at import time)
+let _ModelManager: ModelManagerSingleton | null = null;
+export function getModelManager(): ModelManagerSingleton {
+  if (!_ModelManager) _ModelManager = new ModelManagerSingleton();
+  return _ModelManager;
+}
 
 // Convenience functions
-export const setCurrentModel = (modelName: string, realModelName?: string) => 
-  ModelManager.setCurrentModel(modelName, realModelName);
+export const setCurrentModel = (modelName: string, realModelName?: string) =>
+  getModelManager().setCurrentModel(modelName, realModelName);
 
-export const getCurrentModel = () => ModelManager.getCurrentModel();
+export const getCurrentModel = () => getModelManager().getCurrentModel();
 
-export const getCurrentRealModel = () => ModelManager.getCurrentRealModel();
+export const getCurrentRealModel = () => getModelManager().getCurrentRealModel();
 
-export const getModelCapabilities = (modelName: string) => 
-  ModelManager.getCapabilities(modelName);
+export const getModelCapabilities = (modelName: string) =>
+  getModelManager().getCapabilities(modelName);
 
-export const recordModelUsage = (usage: ModelUsage) => 
-  ModelManager.recordUsage(usage);
+export const recordModelUsage = (usage: ModelUsage) =>
+  getModelManager().recordUsage(usage);
 
 export const onModelChange = (listener: (modelName: string, realModelName?: string) => void) =>
-  ModelManager.onModelChange(listener);
+  getModelManager().onModelChange(listener);

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import chalk from 'chalk';
 import { AgentConfigurationSystem } from './config/agent-config.js';
 import { PromptTemplateSystem } from './config/prompt-templates.js';
-import { ModelManager } from '../models/model-manager.js';
+import { getModelManager, ModelManagerSingleton } from '../models/model-manager.js';
 
 // Architecture Decision Record Schema
 export const ADRSchema = z.object({
@@ -238,14 +238,14 @@ export type APIDesign = z.infer<typeof APIDesignSchema>;
 export class SolutionsArchitectAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: typeof ModelManager;
+  private modelManager: ModelManagerSingleton;
   private agentId = 'solutions-architect';
   
   constructor() {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = ModelManager;
+    this.modelManager = getModelManager();
   }
   
   async initialize(): Promise<void> {
@@ -840,5 +840,9 @@ Format the response as JSON matching the APIDesign schema.`;
   }
 }
 
-// Export singleton instance
-export const solutionsArchitectAgent = new SolutionsArchitectAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _solutionsArchitectAgent: SolutionsArchitectAgent | null = null;
+export function getSolutionsArchitectAgent(): SolutionsArchitectAgent {
+  if (!_solutionsArchitectAgent) _solutionsArchitectAgent = new SolutionsArchitectAgent();
+  return _solutionsArchitectAgent;
+}

@@ -8,7 +8,7 @@ import { z } from 'zod';
 import chalk from 'chalk';
 import { AgentConfigurationSystem } from './config/agent-config.js';
 import { PromptTemplateSystem } from './config/prompt-templates.js';
-import { ModelManager } from '../models/model-manager.js';
+import { getModelManager, ModelManagerSingleton } from '../models/model-manager.js';
 
 // Test Plan Schema
 export const TestPlanSchema = z.object({
@@ -179,7 +179,7 @@ export type BugReport = z.infer<typeof BugReportSchema>;
 export class QAEngineerAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: typeof ModelManager;
+  private modelManager: ModelManagerSingleton;
   private agentId = 'qa-engineer';
   
   private testPlans: Map<string, TestPlan> = new Map();
@@ -190,7 +190,7 @@ export class QAEngineerAgent extends EventEmitter {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = ModelManager;
+    this.modelManager = getModelManager();
   }
   
   async initialize(): Promise<void> {
@@ -997,5 +997,9 @@ Focus on risk-based testing, comprehensive coverage, and continuous quality impr
   }
 }
 
-// Export singleton instance
-export const qaEngineerAgent = new QAEngineerAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _qaEngineerAgent: QAEngineerAgent | null = null;
+export function getQAEngineerAgent(): QAEngineerAgent {
+  if (!_qaEngineerAgent) _qaEngineerAgent = new QAEngineerAgent();
+  return _qaEngineerAgent;
+}

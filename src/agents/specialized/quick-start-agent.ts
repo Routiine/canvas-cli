@@ -780,5 +780,9 @@ ${chalk.gray('Happy coding! 🚀')}
   }
 }
 
-// Export singleton instance
-export const quickStartAgent = new QuickStartAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _quickStartAgent: QuickStartAgent | null = null;
+export function getQuickStartAgent(): QuickStartAgent {
+  if (!_quickStartAgent) _quickStartAgent = new QuickStartAgent();
+  return _quickStartAgent;
+}

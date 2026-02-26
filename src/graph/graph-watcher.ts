@@ -7,14 +7,14 @@ import chokidar from 'chokidar';
 import fs from 'fs-extra';
 import { walkSourceFile } from './ast-walker.js';
 import { enrichWithGit } from './git-enricher.js';
-import { graphStorage } from './graph-storage.js';
+import { getGraphStorage } from './graph-storage.js';
 
 let watcher: ReturnType<typeof chokidar.watch> | null = null;
 
 async function processFile(filePath: string): Promise<void> {
   try {
     if (!await fs.pathExists(filePath)) {
-      graphStorage.deleteFileNodes(filePath);
+      getGraphStorage().deleteFileNodes(filePath);
       return;
     }
 
@@ -30,9 +30,9 @@ async function processFile(filePath: string): Promise<void> {
       fileNode.commit_summary = gitInfo.commitSummary;
     }
 
-    graphStorage.deleteFileNodes(filePath);
-    graphStorage.upsertNodes(nodes);
-    graphStorage.upsertEdges(edges);
+    getGraphStorage().deleteFileNodes(filePath);
+    getGraphStorage().upsertNodes(nodes);
+    getGraphStorage().upsertEdges(edges);
   } catch {
     // Ignore parse errors for non-TS files
   }
@@ -50,7 +50,7 @@ export function startGraphWatcher(rootDir: string = process.cwd()): void {
   watcher
     .on('add', (filePath) => { void processFile(filePath); })
     .on('change', (filePath) => { void processFile(filePath); })
-    .on('unlink', (filePath) => { graphStorage.deleteFileNodes(filePath); });
+    .on('unlink', (filePath) => { getGraphStorage().deleteFileNodes(filePath); });
 }
 
 export function stopGraphWatcher(): void {

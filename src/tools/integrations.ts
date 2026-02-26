@@ -4,9 +4,9 @@
  */
 
 import type { Tool } from '../types.js';
-import { gitlab } from './gitlab.js';
-import { jira } from './jira.js';
-import { slack } from './slack.js';
+import { getGitLab } from './gitlab.js';
+import { getJira } from './jira.js';
+import { getSlack } from './slack.js';
 import chalk from 'chalk';
 
 // GitLab Tools
@@ -41,20 +41,20 @@ export class GitLabMRTool implements Tool {
         if (!params.title || !params.sourceBranch || !params.targetBranch) {
           throw new Error('title, sourceBranch, and targetBranch are required for create');
         }
-        return await gitlab.createMergeRequest(
+        return await getGitLab().createMergeRequest(
           params.title,
           params.sourceBranch,
           params.targetBranch,
           params.description
         );
       case 'list':
-        return await gitlab.listMergeRequests(params.state || 'opened');
+        return await getGitLab().listMergeRequests(params.state || 'opened');
       case 'merge':
         if (!params.mrIid) throw new Error('mrIid is required for merge');
-        return await gitlab.mergeMergeRequest(params.mrIid);
+        return await getGitLab().mergeMergeRequest(params.mrIid);
       case 'get':
         if (!params.mrIid) throw new Error('mrIid is required for get');
-        return await gitlab.getMergeRequest(params.mrIid);
+        return await getGitLab().getMergeRequest(params.mrIid);
       default:
         throw new Error(`Unknown action: ${params.action}. Use: create, list, merge, get`);
     }
@@ -87,18 +87,18 @@ export class GitLabPipelineTool implements Tool {
     switch (params.action) {
       case 'trigger':
         if (!params.ref) throw new Error('ref is required for trigger');
-        return await gitlab.triggerPipeline(params.ref, params.variables);
+        return await getGitLab().triggerPipeline(params.ref, params.variables);
       case 'list':
-        return await gitlab.listPipelines(params.ref);
+        return await getGitLab().listPipelines(params.ref);
       case 'get':
         if (!params.pipelineId) throw new Error('pipelineId is required for get');
-        return await gitlab.getPipeline(params.pipelineId);
+        return await getGitLab().getPipeline(params.pipelineId);
       case 'retry':
         if (!params.pipelineId) throw new Error('pipelineId is required for retry');
-        return await gitlab.retryPipeline(params.pipelineId);
+        return await getGitLab().retryPipeline(params.pipelineId);
       case 'cancel':
         if (!params.pipelineId) throw new Error('pipelineId is required for cancel');
-        return await gitlab.cancelPipeline(params.pipelineId);
+        return await getGitLab().cancelPipeline(params.pipelineId);
       default:
         throw new Error(`Unknown action: ${params.action}. Use: trigger, list, get, retry, cancel`);
     }
@@ -133,16 +133,16 @@ export class GitLabIssueTool implements Tool {
     switch (params.action) {
       case 'create':
         if (!params.title) throw new Error('title is required for create');
-        return await gitlab.createIssue(
+        return await getGitLab().createIssue(
           params.title,
           params.description,
           params.labels
         );
       case 'list':
-        return await gitlab.listIssues('opened', params.labels);
+        return await getGitLab().listIssues('opened', params.labels);
       case 'update':
         if (!params.issueIid) throw new Error('issueIid is required for update');
-        return await gitlab.updateIssue(params.issueIid, params.updates);
+        return await getGitLab().updateIssue(params.issueIid, params.updates);
       default:
         throw new Error(`Unknown action: ${params.action}. Use: create, list, update`);
     }
@@ -184,27 +184,27 @@ export class JiraIssueTool implements Tool {
     switch (params.action) {
       case 'create':
         if (!params.summary) throw new Error('summary is required for create');
-        return await jira.createIssue({
+        return await getJira().createIssue({
           summary: params.summary,
           description: params.description,
           issueType: params.issueType || 'Task'
         });
       case 'get':
         if (!params.issueKey) throw new Error('issueKey is required for get');
-        return await jira.getIssue(params.issueKey);
+        return await getJira().getIssue(params.issueKey);
       case 'update':
         if (!params.issueKey) throw new Error('issueKey is required for update');
-        return await jira.updateIssue(params.issueKey, params.updates);
+        return await getJira().updateIssue(params.issueKey, params.updates);
       case 'transition':
         if (!params.issueKey || !params.transitionName) {
           throw new Error('issueKey and transitionName are required for transition');
         }
-        return await jira.transitionIssue(params.issueKey, params.transitionName);
+        return await getJira().transitionIssue(params.issueKey, params.transitionName);
       case 'search':
         if (!params.jql) throw new Error('jql is required for search');
-        return await jira.searchIssues(params.jql);
+        return await getJira().searchIssues(params.jql);
       case 'my_issues':
-        return await jira.getMyIssues();
+        return await getJira().getMyIssues();
       default:
         throw new Error(`Unknown action: ${params.action}. Use: create, get, update, transition, search, my_issues`);
     }
@@ -233,15 +233,15 @@ export class JiraSprintTool implements Tool {
   async run(params: any): Promise<any> {
     switch (params.action) {
       case 'list_boards':
-        return await jira.listBoards();
+        return await getJira().listBoards();
       case 'list_sprints':
-        return await jira.listSprints(params.boardId, params.state);
+        return await getJira().listSprints(params.boardId, params.state);
       case 'get_active':
-        return await jira.getActiveSprint(params.boardId);
+        return await getJira().getActiveSprint(params.boardId);
       case 'get_issues':
-        return await jira.getSprintIssues(params.sprintId);
+        return await getJira().getSprintIssues(params.sprintId);
       case 'move_issues':
-        return await jira.moveIssuesToSprint(params.sprintId, params.issueKeys);
+        return await getJira().moveIssuesToSprint(params.sprintId, params.issueKeys);
       default:
         throw new Error(`Unknown action: ${params.action}`);
     }
@@ -268,7 +268,7 @@ export class JiraReportTool implements Tool {
   async run(params: any): Promise<any> {
     switch (params.action) {
       case 'sprint_report':
-        const report = await jira.getSprintReport(params.sprintId);
+        const report = await getJira().getSprintReport(params.sprintId);
         console.log(chalk.cyan('\n📊 Sprint Report:'));
         console.log(chalk.white(`Total Issues: ${report.total}`));
         console.log(chalk.green(`Completed: ${report.completed}`));
@@ -276,7 +276,7 @@ export class JiraReportTool implements Tool {
         console.log(chalk.gray(`To Do: ${report.todo}`));
         return report;
       case 'epic_issues':
-        return await jira.getEpicIssues(params.epicKey);
+        return await getJira().getEpicIssues(params.epicKey);
       default:
         throw new Error(`Unknown action: ${params.action}`);
     }
@@ -317,25 +317,25 @@ export class SlackMessageTool implements Tool {
         if (!params.text && !params.blocks) {
           throw new Error('text or blocks is required for send');
         }
-        return await slack.sendMessage({
+        return await getSlack().sendMessage({
           channel: params.channel,
           text: params.text,
           blocks: params.blocks
         });
       case 'update':
         if (!params.timestamp) throw new Error('timestamp is required for update');
-        return await slack.updateMessage(params.channel, params.timestamp, {
+        return await getSlack().updateMessage(params.channel, params.timestamp, {
           text: params.text,
           blocks: params.blocks
         });
       case 'delete':
         if (!params.timestamp) throw new Error('timestamp is required for delete');
-        return await slack.deleteMessage(params.channel, params.timestamp);
+        return await getSlack().deleteMessage(params.channel, params.timestamp);
       case 'ephemeral':
         if (!params.user || !params.text) {
           throw new Error('user and text are required for ephemeral');
         }
-        return await slack.sendEphemeral(params.channel, params.user, params.text);
+        return await getSlack().sendEphemeral(params.channel, params.user, params.text);
       default:
         throw new Error(`Unknown action: ${params.action}. Use: send, update, delete, ephemeral`);
     }
@@ -382,7 +382,7 @@ export class SlackNotificationTool implements Tool {
   async run(params: any): Promise<any> {
     switch (params.type) {
       case 'deployment':
-        return await slack.notifyDeployment(
+        return await getSlack().notifyDeployment(
           params.environment,
           params.version,
           params.status,
@@ -390,7 +390,7 @@ export class SlackNotificationTool implements Tool {
           params.channel
         );
       case 'build':
-        return await slack.notifyBuild(
+        return await getSlack().notifyBuild(
           params.project,
           params.branch,
           params.status,
@@ -398,7 +398,7 @@ export class SlackNotificationTool implements Tool {
           params.channel
         );
       case 'test':
-        return await slack.notifyTest(
+        return await getSlack().notifyTest(
           params.suite,
           params.passed,
           params.failed,
@@ -407,13 +407,13 @@ export class SlackNotificationTool implements Tool {
           params.channel
         );
       case 'error':
-        return await slack.notifyError(
+        return await getSlack().notifyError(
           params.error,
           params.context,
           params.channel
         );
       case 'custom':
-        return await slack.sendNotification({
+        return await getSlack().sendNotification({
           type: 'info',
           title: params.title,
           message: params.message
@@ -446,13 +446,13 @@ export class SlackChannelTool implements Tool {
   async run(params: any): Promise<any> {
     switch (params.action) {
       case 'list':
-        return await slack.listChannels();
+        return await getSlack().listChannels();
       case 'get':
-        return await slack.getChannel(params.channel);
+        return await getSlack().getChannel(params.channel);
       case 'create':
-        return await slack.createChannel(params.name, params.isPrivate);
+        return await getSlack().createChannel(params.name, params.isPrivate);
       case 'invite':
-        return await slack.inviteToChannel(params.channel, params.users);
+        return await getSlack().inviteToChannel(params.channel, params.users);
       default:
         throw new Error(`Unknown action: ${params.action}`);
     }
@@ -486,15 +486,15 @@ export class IntegrationAuthTool implements Tool {
   async run(params: any): Promise<any> {
     switch (params.service) {
       case 'gitlab':
-        return await gitlab.authenticate(params.gitlabToken);
+        return await getGitLab().authenticate(params.gitlabToken);
       case 'jira':
-        return await jira.authenticate(
+        return await getJira().authenticate(
           params.jiraEmail,
           params.jiraApiToken,
           params.jiraDomain
         );
       case 'slack':
-        return await slack.authenticate(params.slackBotToken);
+        return await getSlack().authenticate(params.slackBotToken);
       default:
         throw new Error(`Unknown service: ${params.service}`);
     }

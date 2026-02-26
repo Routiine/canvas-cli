@@ -625,5 +625,9 @@ export class StoryParser {
   }
 }
 
-// Export singleton instance
-export const storyParser = new StoryParser();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _storyParser: StoryParser | null = null;
+export function getStoryParser(): StoryParser {
+  if (!_storyParser) _storyParser = new StoryParser();
+  return _storyParser;
+}

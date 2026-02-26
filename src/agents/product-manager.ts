@@ -8,7 +8,7 @@ import { z } from 'zod';
 import chalk from 'chalk';
 import { AgentConfigurationSystem } from './config/agent-config.js';
 import { PromptTemplateSystem } from './config/prompt-templates.js';
-import { ModelManager } from '../models/model-manager.js';
+import { getModelManager, ModelManagerSingleton } from '../models/model-manager.js';
 
 // Product Requirements Document Schema
 export const PRDSchema = z.object({
@@ -138,14 +138,14 @@ export type FeaturePrioritization = z.infer<typeof FeaturePrioritizationSchema>;
 export class ProductManagerAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: typeof ModelManager;
+  private modelManager: ModelManagerSingleton;
   private agentId = 'product-manager';
   
   constructor() {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = ModelManager;
+    this.modelManager = getModelManager();
   }
   
   async initialize(): Promise<void> {
@@ -666,5 +666,9 @@ ICE Score = Impact * Confidence * Ease`
   }
 }
 
-// Export singleton instance
-export const productManagerAgent = new ProductManagerAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _productManagerAgent: ProductManagerAgent | null = null;
+export function getProductManagerAgent(): ProductManagerAgent {
+  if (!_productManagerAgent) _productManagerAgent = new ProductManagerAgent();
+  return _productManagerAgent;
+}

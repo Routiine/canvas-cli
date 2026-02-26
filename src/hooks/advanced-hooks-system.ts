@@ -1170,5 +1170,9 @@ export class AdvancedHooksSystem extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const hooksSystem = new AdvancedHooksSystem();
+// Lazy singleton getter (avoids instantiation at import time)
+let _hooksSystem: AdvancedHooksSystem | null = null;
+export function getHooksSystem(): AdvancedHooksSystem {
+  if (!_hooksSystem) _hooksSystem = new AdvancedHooksSystem();
+  return _hooksSystem;
+}

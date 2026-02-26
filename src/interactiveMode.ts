@@ -1,7 +1,7 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import type { ToolRegistry } from './tools/registry.js';
-import { intentDetector } from './tools/intentDetector.js';
+import { getIntentDetector } from './tools/intentDetector.js';
 
 export class InteractiveMode {
   private confirmationEnabled: boolean = true;
@@ -158,4 +158,9 @@ export class InteractiveMode {
   }
 }
 
-export const interactiveMode = new InteractiveMode();
+// Lazy singleton getter (avoids instantiation at import time)
+let _interactiveMode: InteractiveMode | null = null;
+export function getInteractiveMode(): InteractiveMode {
+  if (!_interactiveMode) _interactiveMode = new InteractiveMode();
+  return _interactiveMode;
+}

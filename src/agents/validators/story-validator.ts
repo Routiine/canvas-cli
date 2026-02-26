@@ -608,5 +608,9 @@ export class StoryValidator {
   }
 }
 
-// Export singleton instance
-export const storyValidator = new StoryValidator();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _storyValidator: StoryValidator | null = null;
+export function getStoryValidator(): StoryValidator {
+  if (!_storyValidator) _storyValidator = new StoryValidator();
+  return _storyValidator;
+}

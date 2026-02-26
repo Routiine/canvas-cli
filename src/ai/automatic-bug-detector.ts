@@ -805,5 +805,9 @@ interface BugReport {
   recommendations: string[];
 }
 
-// Export singleton instance
-export const automaticBugDetector = new AutomaticBugDetector();
+// Lazy singleton getter (avoids instantiation at import time)
+let _automaticBugDetector: AutomaticBugDetector | null = null;
+export function getAutomaticBugDetector(): AutomaticBugDetector {
+  if (!_automaticBugDetector) _automaticBugDetector = new AutomaticBugDetector();
+  return _automaticBugDetector;
+}

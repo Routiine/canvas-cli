@@ -135,7 +135,11 @@ function validateConfig(userConfig: any): Config {
   return config;
 }
 
+let _cachedConfig: Config | null = null;
+
 export function loadConfig(): Config {
+  if (_cachedConfig) return _cachedConfig;
+
   try {
     // Ensure config directory exists
     if (!fs.existsSync(CONFIG_DIR)) {
@@ -147,7 +151,8 @@ export function loadConfig(): Config {
     if (found) {
       const userConfig = loadConfigFile(found.path);
       if (userConfig) {
-        return validateConfig(userConfig);
+        _cachedConfig = validateConfig(userConfig);
+        return _cachedConfig;
       }
     }
 
@@ -157,7 +162,8 @@ export function loadConfig(): Config {
       const projectData = loadConfigFile(projectConfig.path);
       if (projectData) {
         // Project config merges on top of user config
-        return validateConfig(projectData);
+        _cachedConfig = validateConfig(projectData);
+        return _cachedConfig;
       }
     }
 
@@ -165,14 +171,16 @@ export function loadConfig(): Config {
     if (fs.existsSync(CONFIG_FILE)) {
       const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
       const userConfig = JSON.parse(data);
-      return validateConfig(userConfig);
+      _cachedConfig = validateConfig(userConfig);
+      return _cachedConfig;
     }
   } catch (error) {
     console.warn('Warning: Error loading config, using defaults:', error);
   }
 
   // Return safe defaults
-  return DEFAULT_CONFIG;
+  _cachedConfig = DEFAULT_CONFIG;
+  return _cachedConfig;
 }
 
 export function saveConfig(config: Partial<Config>): void {
@@ -181,9 +189,11 @@ export function saveConfig(config: Partial<Config>): void {
     if (!fs.existsSync(CONFIG_DIR)) {
       fs.mkdirSync(CONFIG_DIR, { recursive: true });
     }
-    
+
     // Save exactly what's provided - no merging
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+    // Invalidate cache so next loadConfig() picks up new values
+    _cachedConfig = null;
   } catch (error) {
     console.error('Error saving config:', error);
   }

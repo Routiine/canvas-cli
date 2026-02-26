@@ -667,5 +667,9 @@ export class RBACSystem extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const rbacSystem = new RBACSystem();
+// Lazy singleton getter (avoids instantiation at import time)
+let _rbacSystem: RBACSystem | null = null;
+export function getRbacSystem(): RBACSystem {
+  if (!_rbacSystem) _rbacSystem = new RBACSystem();
+  return _rbacSystem;
+}

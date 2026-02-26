@@ -754,5 +754,9 @@ interface ValidationRule {
   validate: (content: string, filepath?: string) => Promise<ValidationIssue[]>;
 }
 
-// Export singleton instance
-export const codeValidator = new CodeValidator();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _codeValidator: CodeValidator | null = null;
+export function getCodeValidator(): CodeValidator {
+  if (!_codeValidator) _codeValidator = new CodeValidator();
+  return _codeValidator;
+}

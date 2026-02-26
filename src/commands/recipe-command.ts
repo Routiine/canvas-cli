@@ -502,7 +502,12 @@ class RecipeCommandWrapper {
   }
 }
 
-export const recipeCommand = new RecipeCommandWrapper();
+// Lazy singleton getter (avoids instantiation at import time)
+let _recipeCommand: RecipeCommandWrapper | null = null;
+export function getRecipeCommand(): RecipeCommandWrapper {
+  if (!_recipeCommand) _recipeCommand = new RecipeCommandWrapper();
+  return _recipeCommand;
+}
 
 /**
  * Prompt for a parameter value

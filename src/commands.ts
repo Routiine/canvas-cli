@@ -16,10 +16,10 @@ import { ContextLoader } from './tools/memory.js';
 import type { Message, TokenUsage } from './types.js';
 import { loadConfig, saveConfig } from './config.js';
 import { WorkflowEngine } from './tools/workflows.js';
-import { intentDetector } from './tools/intentDetector.js';
-import { interactiveMode } from './interactiveMode.js';
+import { getIntentDetector } from './tools/intentDetector.js';
+import { getInteractiveMode } from './interactiveMode.js';
 import { OrchestratorCommand } from './commands/orchestratorCommand.js';
-import { configCommand } from './commands/config-command.js';
+import { getConfigCommand } from './commands/config-command.js';
 import { displaySplash, setTheme as setSplashTheme } from './utils/splash.js';
 import { setCurrentModel, getCurrentModel } from './models/model-manager.js';
 
@@ -254,12 +254,12 @@ export class CommandHandler {
         return await this.orchestrator.execute(args ? args.split(' ').filter(Boolean) : []);
 
       case 'config':
-        return await configCommand.execute(args);
+        return await getConfigCommand().execute(args);
 
       case 'agentic':
       case 'agents':
-        const { agenticCommand } = await import('./commands/agentic-command.js');
-        return await agenticCommand.execute(args);
+        const { getAgenticCommand } = await import('./commands/agentic-command.js');
+        return await getAgenticCommand().execute(args);
 
       case 'task':
         return await this.runTask(args);
@@ -638,24 +638,24 @@ This file provides context and instructions for the Canvas AI assistant in this 
   }
 
   private toggleAutoExecute(): string {
-    const enabled = !interactiveMode['autoExecute'];
-    interactiveMode.setAutoExecute(enabled);
+    const enabled = !getInteractiveMode()['autoExecute'];
+    getInteractiveMode().setAutoExecute(enabled);
     return this.themeManager.success(`Auto-execute ${enabled ? 'enabled' : 'disabled'}`);
   }
 
   private toggleConfirmations(): string {
-    const enabled = !interactiveMode['confirmationEnabled'];
-    interactiveMode.setConfirmation(enabled);
+    const enabled = !getInteractiveMode()['confirmationEnabled'];
+    getInteractiveMode().setConfirmation(enabled);
     return this.themeManager.success(`Confirmations ${enabled ? 'enabled' : 'disabled'}`);
   }
 
   private async showHistory(): Promise<string> {
-    await interactiveMode.showExecutionHistory();
+    await getInteractiveMode().showExecutionHistory();
     return '';
   }
 
   private async undoLastAction(): Promise<string> {
-    await interactiveMode.undoLastAction();
+    await getInteractiveMode().undoLastAction();
     return this.themeManager.success('Last action undone');
   }
 
@@ -664,8 +664,8 @@ This file provides context and instructions for the Canvas AI assistant in this 
       return this.themeManager.error('Usage: /intent <your request>');
     }
 
-    const intent = intentDetector.detectIntent(text);
-    await intentDetector.executeIntent(intent, this.toolRegistry);
+    const intent = getIntentDetector().detectIntent(text);
+    await getIntentDetector().executeIntent(intent, this.toolRegistry);
     return this.themeManager.success('Intent executed');
   }
 

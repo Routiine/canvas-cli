@@ -527,5 +527,9 @@ export class SlackIntegration extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const slack = new SlackIntegration();
+// Lazy singleton getter (avoids instantiation at import time)
+let _slack: SlackIntegration | null = null;
+export function getSlack(): SlackIntegration {
+  if (!_slack) _slack = new SlackIntegration();
+  return _slack;
+}

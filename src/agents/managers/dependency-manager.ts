@@ -752,5 +752,9 @@ export class DependencyManager extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const dependencyManager = new DependencyManager();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _dependencyManager: DependencyManager | null = null;
+export function getDependencyManager(): DependencyManager {
+  if (!_dependencyManager) _dependencyManager = new DependencyManager();
+  return _dependencyManager;
+}

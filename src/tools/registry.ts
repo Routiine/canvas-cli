@@ -165,6 +165,7 @@ export class ToolRegistry {
   private enabledTools: Set<string> = new Set();
   private dynamicToolCreator!: DynamicToolCreator;
   private theme: ThemeManager;
+  private _cachedToolDefs: ToolDefinition[] | null = null;
 
   constructor(theme?: ThemeManager) {
     this.theme = theme || new ThemeManager('slate');
@@ -373,11 +374,13 @@ export class ToolRegistry {
 
   register(tool: Tool): void {
     this.tools.set(tool.name, tool);
+    this._cachedToolDefs = null;
   }
 
   unregister(name: string): void {
     this.tools.delete(name);
     this.enabledTools.delete(name);
+    this._cachedToolDefs = null;
   }
 
   get(name: string): Tool | undefined {
@@ -397,11 +400,13 @@ export class ToolRegistry {
   enable(name: string): void {
     if (this.tools.has(name)) {
       this.enabledTools.add(name);
+      this._cachedToolDefs = null;
     }
   }
 
   disable(name: string): void {
     this.enabledTools.delete(name);
+    this._cachedToolDefs = null;
   }
 
   isEnabled(name: string): boolean {
@@ -429,13 +434,15 @@ export class ToolRegistry {
   }
 
   getToolDefinitions(): ToolDefinition[] {
-    return this.listEnabled().map(tool => ({
-      type: 'function',
+    if (this._cachedToolDefs) return this._cachedToolDefs;
+
+    this._cachedToolDefs = this.listEnabled().map(tool => ({
+      type: 'function' as const,
       function: {
         name: tool.name,
         description: tool.description,
         parameters: {
-          type: 'object',
+          type: 'object' as const,
           properties: tool.parameters || {},
           required: Object.keys(tool.parameters || {}).filter(key =>
             !tool.parameters?.[key]?.optional
@@ -443,6 +450,7 @@ export class ToolRegistry {
         }
       }
     }));
+    return this._cachedToolDefs;
   }
 
   /**

@@ -944,5 +944,9 @@ export class SuperClaudeManager extends EventEmitter {
   }
 }
 
-// Export singleton instance
-export const superClaudeManager = new SuperClaudeManager();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _superClaudeManager: SuperClaudeManager | null = null;
+export function getSuperClaudeManager(): SuperClaudeManager {
+  if (!_superClaudeManager) _superClaudeManager = new SuperClaudeManager();
+  return _superClaudeManager;
+}

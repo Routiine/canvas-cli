@@ -1361,5 +1361,9 @@ function needsConfiguration(requirements: FeatureRequirement): boolean {
          requirements.description.includes('settings');
 }
 
-// Export singleton instance
-export const featureDeveloper = new FeatureDeveloperAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _featureDeveloper: FeatureDeveloperAgent | null = null;
+export function getFeatureDeveloper(): FeatureDeveloperAgent {
+  if (!_featureDeveloper) _featureDeveloper = new FeatureDeveloperAgent();
+  return _featureDeveloper;
+}

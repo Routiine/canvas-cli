@@ -8,7 +8,7 @@ import { z } from 'zod';
 import chalk from 'chalk';
 import { AgentConfigurationSystem } from './config/agent-config.js';
 import { PromptTemplateSystem } from './config/prompt-templates.js';
-import { ModelManager } from '../models/model-manager.js';
+import { getModelManager, ModelManagerSingleton } from '../models/model-manager.js';
 import { CodeGenerator } from './pipelines/code-generator.js';
 import { ImplementationStorage } from './storage/implementation-storage.js';
 import { CodeValidator } from './validators/code-validator.js';
@@ -142,7 +142,7 @@ export type CodeReview = z.infer<typeof CodeReviewSchema>;
 export class DeveloperAgent extends EventEmitter {
   private configSystem: AgentConfigurationSystem;
   private templateSystem: PromptTemplateSystem;
-  private modelManager: typeof ModelManager;
+  private modelManager: ModelManagerSingleton;
   private codeGenerator: CodeGenerator;
   private storage: ImplementationStorage;
   private validator: CodeValidator;
@@ -152,7 +152,7 @@ export class DeveloperAgent extends EventEmitter {
     super();
     this.configSystem = new AgentConfigurationSystem();
     this.templateSystem = new PromptTemplateSystem();
-    this.modelManager = ModelManager;
+    this.modelManager = getModelManager();
     this.codeGenerator = new CodeGenerator();
     this.storage = new ImplementationStorage();
     this.validator = new CodeValidator();
@@ -817,5 +817,9 @@ Always prioritize code quality, maintainability, and performance.`,
   }
 }
 
-// Export singleton instance
-export const developerAgent = new DeveloperAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _developerAgent: DeveloperAgent | null = null;
+export function getDeveloperAgent(): DeveloperAgent {
+  if (!_developerAgent) _developerAgent = new DeveloperAgent();
+  return _developerAgent;
+}

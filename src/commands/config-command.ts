@@ -617,4 +617,9 @@ export class ConfigCommand {
   }
 }
 
-export const configCommand = new ConfigCommand();
+// Lazy singleton getter (avoids instantiation at import time)
+let _configCommand: ConfigCommand | null = null;
+export function getConfigCommand(): ConfigCommand {
+  if (!_configCommand) _configCommand = new ConfigCommand();
+  return _configCommand;
+}

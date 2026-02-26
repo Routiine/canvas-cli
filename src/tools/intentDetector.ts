@@ -404,5 +404,9 @@ MIT`;
   }
 }
 
-// Singleton instance
-export const intentDetector = new IntentDetector();
+// Lazy singleton getter (avoids instantiation at import time)
+let _intentDetector: IntentDetector | null = null;
+export function getIntentDetector(): IntentDetector {
+  if (!_intentDetector) _intentDetector = new IntentDetector();
+  return _intentDetector;
+}

@@ -239,15 +239,19 @@ class APIKeyManager {
   }
 }
 
-// Export singleton instance
-export const apiKeyManager = new APIKeyManager();
+// Lazy singleton getter (avoids instantiation at import time)
+let _apiKeyManager: APIKeyManager | null = null;
+export function getApiKeyManager(): APIKeyManager {
+  if (!_apiKeyManager) _apiKeyManager = new APIKeyManager();
+  return _apiKeyManager;
+}
 
 // Export class for testing
 export { APIKeyManager };
 
 // Convenience exports
-export const getAPIKey = apiKeyManager.getKey.bind(apiKeyManager);
-export const hasAPIKey = apiKeyManager.hasKey.bind(apiKeyManager);
-export const validateAPIKey = apiKeyManager.validateKey.bind(apiKeyManager);
+export const getAPIKey = (...args: Parameters<APIKeyManager['getKey']>) => getApiKeyManager().getKey(...args);
+export const hasAPIKey = (...args: Parameters<APIKeyManager['hasKey']>) => getApiKeyManager().hasKey(...args);
+export const validateAPIKey = (...args: Parameters<APIKeyManager['validateKey']>) => getApiKeyManager().validateKey(...args);
 
-export default apiKeyManager;
+export default getApiKeyManager;

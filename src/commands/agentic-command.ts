@@ -557,5 +557,9 @@ Build a command-line tool for developer productivity.
   }
 }
 
-// Export singleton instance
-export const agenticCommand = new AgenticCommand();
+// Lazy singleton getter (avoids instantiation at import time)
+let _agenticCommand: AgenticCommand | null = null;
+export function getAgenticCommand(): AgenticCommand {
+  if (!_agenticCommand) _agenticCommand = new AgenticCommand();
+  return _agenticCommand;
+}

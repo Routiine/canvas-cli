@@ -900,5 +900,9 @@ ${scanResult.dependencies?.length || 0} vulnerable dependencies`;
   }
 }
 
-// Export singleton instance
-export const securityAuditor = new SecurityAuditorAgent();
+// Lazy singleton getter — avoids ~200ms+ startup cost when unused
+let _securityAuditor: SecurityAuditorAgent | null = null;
+export function getSecurityAuditor(): SecurityAuditorAgent {
+  if (!_securityAuditor) _securityAuditor = new SecurityAuditorAgent();
+  return _securityAuditor;
+}

@@ -602,19 +602,24 @@ class GitHubIntegration {
   }
 }
 
-// Export singleton instance
-export const github = new GitHubIntegration();
+// Lazy singleton getter (avoids instantiation at import time)
+let _github: GitHubIntegration | null = null;
+export function getGitHub(): GitHubIntegration {
+  if (!_github) _github = new GitHubIntegration();
+  return _github;
+}
 
 // Export for use in Canvas CLI tools
 export default {
   name: 'github',
   description: 'GitHub integration for pull requests, issues, actions, and more',
-  
+
   async execute(action: string, ...args: any[]): Promise<any> {
+    const github = getGitHub();
     switch (action) {
       case 'auth':
         return github.authenticate(args[0]);
-      
+
       case 'pr':
       case 'pull-request':
         const prCommand = args[0];
@@ -628,7 +633,7 @@ export default {
           return github.listPullRequests({ state: args[1] });
         }
         break;
-      
+
       case 'issue':
         const issueCommand = args[0];
         if (issueCommand === 'create') {
@@ -641,7 +646,7 @@ export default {
           return github.listIssues({ state: args[1] });
         }
         break;
-      
+
       case 'workflow':
       case 'action':
         const workflowCommand = args[0];
@@ -651,7 +656,7 @@ export default {
           return github.triggerWorkflow(args[1], args[2]);
         }
         break;
-      
+
       case 'release':
         return github.createRelease({
           tagName: args[0],
@@ -660,34 +665,34 @@ export default {
           draft: args[3],
           prerelease: args[4]
         });
-      
+
       case 'fork':
         return github.forkRepository(args[0]);
-      
+
       case 'search':
         return github.searchRepositories(args[0], {
           sort: args[1],
           limit: args[2]
         });
-      
+
       case 'stats':
         return github.getRepoStats();
-      
+
       case 'pages':
         return github.setupGitHubPages({
           branch: args[0],
           path: args[1]
         });
-      
+
       case 'collaborator':
         return github.addCollaborator(args[0], args[1]);
-      
+
       case 'protect':
         return github.protectBranch(args[0], {
           requirePullRequest: args[1],
           requireReviews: args[2]
         });
-      
+
       default:
         throw new Error(`Unknown GitHub action: ${action}`);
     }

@@ -923,5 +923,9 @@ interface PerformanceReport {
   recommendations: string[];
 }
 
-// Export singleton instance
-export const performanceOptimizationAI = new PerformanceOptimizationAI();
+// Lazy singleton getter (avoids instantiation at import time)
+let _performanceOptimizationAI: PerformanceOptimizationAI | null = null;
+export function getPerformanceOptimizationAI(): PerformanceOptimizationAI {
+  if (!_performanceOptimizationAI) _performanceOptimizationAI = new PerformanceOptimizationAI();
+  return _performanceOptimizationAI;
+}
