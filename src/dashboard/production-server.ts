@@ -10,6 +10,7 @@ import cors from 'cors';
 import { z } from 'zod';
 import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
+import { readFileSync } from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import Database from 'better-sqlite3';
@@ -170,6 +171,19 @@ class ProductionDashboardServer extends EventEmitter {
   }
 
   private setupMiddleware(): void {
+    // Security headers (replaces helmet dependency)
+    this.app.use((_req, res, next) => {
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+      res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+      res.setHeader(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'"
+      );
+      next();
+    });
+
     // CORS
     this.app.use(cors({
       origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3002'],
@@ -846,7 +860,7 @@ class ProductionDashboardServer extends EventEmitter {
       let pid: number | null = null;
 
       try {
-        const pidStr = require('fs').readFileSync(pidFile, 'utf-8').trim();
+        const pidStr = readFileSync(pidFile, 'utf-8').trim();
         pid = parseInt(pidStr);
         process.kill(pid, 0);
         running = true;
@@ -946,8 +960,17 @@ class ProductionDashboardServer extends EventEmitter {
       const file = req.query.file as string;
       if (!file) { res.status(400).json({ error: 'file query param required' }); return; }
 
+      // Prevent path traversal: resolve to absolute path and verify it starts within
+      // the user's home directory (where Canvas projects live).
+      const resolved = path.resolve(file);
+      const allowedRoot = os.homedir();
+      if (!resolved.startsWith(allowedRoot + path.sep) && resolved !== allowedRoot) {
+        res.status(400).json({ error: 'file path outside allowed directory' });
+        return;
+      }
+
       const { analyzeFileDataFlow } = await import('../graph/data-flow-analyzer.js');
-      const result = await analyzeFileDataFlow(file);
+      const result = await analyzeFileDataFlow(resolved);
       res.json(result);
     } catch (err) {
       res.status(500).json({ error: String(err) });
