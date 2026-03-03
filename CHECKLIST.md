@@ -75,9 +75,9 @@
 - [x] Metrics collection via real `os.cpus()` / `os.freemem()` (not fake data)
 - [x] SQLite database (`~/.canvas/canvas.db`) for daemon findings, routing log, graph nodes
 - [x] `unhandledRejection` handler at process level
-- [ ] **TODO: Add `helmet` middleware** — production-server.ts has no security headers set.
-  Security headers (CSP, X-Frame-Options, X-Content-Type-Options, etc.) are absent.
-  Install `helmet` and add `this.app.use(helmet())` in `setupMiddleware()`.
+- [x] **Security headers added** — added middleware in `setupMiddleware()` setting X-Frame-Options,
+  X-Content-Type-Options, Referrer-Policy, Permissions-Policy, and Content-Security-Policy
+  without installing helmet (same effect, zero new dependencies). ← FIXED
 - [ ] Rate limiting: current implementation is in-memory only — resets on server restart.
   For production use, consider `express-rate-limit` with a persistent store.
 - [ ] Rate limiting missing on dashboard server port binding: binds to `0.0.0.0:3001` —
@@ -136,9 +136,9 @@
 ### Application Security (OWASP Top 10)
 - [ ] **A03 Injection — SQLite queries in `handleGetDaemonFindings`**: parameterized via
   `db.prepare(...).all(...params)` — correctly uses prepared statements. PASS.
-- [ ] **A03 Injection — `handleGetDataFlow`**: accepts `req.query.file` and passes it directly to
-  `analyzeFileDataFlow(file)`. Validate that `file` is a safe path (no path traversal `../`).
-  **TODO: Add path sanitization / allowlist check on the `file` query param.**
+- [x] **A03 Injection — `handleGetDataFlow`**: path traversal fixed — `req.query.file` is now
+  resolved with `path.resolve()` and validated to start within `os.homedir()` before
+  passing to `analyzeFileDataFlow`. Returns 400 if outside allowed root. ← FIXED
 - [ ] **A06 Vulnerable Components**: `npm audit` reports 1 HIGH vulnerability:
   - `minimatch` 10.0.0–10.2.2: ReDoS via multiple non-adjacent GLOBSTAR segments
     (GHSA-7r86-cg39-jmmj, CVSS 7.5) and nested `*()` extglobs (GHSA-23c5-xmqv-rm74)
@@ -146,6 +146,7 @@
 - [x] **A09 Logging**: requests, audit events, and errors are logged; no PII sent to logs
 - [ ] **A10 SSRF**: CLI includes a `crawl` command and `webBuilder.ts` tool that fetch URLs.
   Validate and restrict user-supplied URLs; block private IP ranges (169.254.x.x, 10.x.x.x, etc.)
+- [x] `require('fs')` in `handleGetDaemonStatus` replaced with named ESM import `{ readFileSync }` ← FIXED
 - [ ] No secrets / API keys in source code — confirmed by `.gitignore` (verify `.env` is ignored)
 - [ ] `CANVAS_SESSION_CONTEXT` env var is set from session memory and truncated to 2000 chars —
   ensure no sensitive content is inadvertently stored in env var space
