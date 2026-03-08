@@ -552,24 +552,15 @@ export class AdvancedHooksSystem extends EventEmitter {
   }
   
   private async executeJavaScript(action: HookAction, context: HookContext): Promise<any> {
-    // Check cache
-    let func = this.scriptCache.get(action.target);
-    
-    if (!func) {
-      // Load and compile function
-      if (action.target.startsWith('function')) {
-        // Inline function
-        func = new Function('context', 'variables', action.target);
-      } else {
-        // Load from file
-        const code = await fs.readFile(action.target, 'utf-8');
-        func = new Function('context', 'variables', code);
-      }
-      
-      this.scriptCache.set(action.target, func);
+    // Load code from target
+    let code: string;
+    if (action.target.startsWith('function')) {
+      code = action.target;
+    } else {
+      code = await fs.readFile(action.target, 'utf-8');
     }
-    
-    // Create sandbox context
+
+    // Create sandbox context with limited globals
     const sandbox = {
       context,
       variables: Object.fromEntries(this.globalVariables),
@@ -577,16 +568,16 @@ export class AdvancedHooksSystem extends EventEmitter {
       process: {
         env: {},
         cwd: process.cwd
-      }
+      },
+      result: undefined as unknown
     };
-    
-    // Execute in VM for isolation
-    const script = new vm.Script(`
-      (${func.toString()})(context, variables);
-    `);
-    
+
+    // Execute in VM for isolation with timeout enforcement
+    const wrappedCode = `result = (function(context, variables) { ${code} })(context, variables);`;
+    const script = new vm.Script(wrappedCode);
     const vmContext = vm.createContext(sandbox);
-    return script.runInContext(vmContext, { timeout: action.timeout || 30000 });
+    script.runInContext(vmContext, { timeout: action.timeout || 30000 });
+    return sandbox.result;
   }
   
   private async executeWebhook(action: HookAction, context: HookContext): Promise<any> {
@@ -820,13 +811,14 @@ export class AdvancedHooksSystem extends EventEmitter {
   }
   
   private evaluateCustom(condition: HookCondition, context: HookContext): boolean {
-    // Execute custom evaluation function
+    // Execute custom evaluation in sandboxed VM with timeout
     try {
-      const func = new Function('context', 'condition', condition.value);
-      const sandbox = { context, condition };
+      const sandbox = { context, condition, result: false as boolean };
       const vmCtx = vm.createContext(sandbox);
-      const script = new vm.Script(`(${func.toString()})(context, condition)`);
-      return Boolean(script.runInContext(vmCtx, { timeout: 5000 }));
+      const wrappedCode = `result = (function(context, condition) { ${condition.value} })(context, condition);`;
+      const script = new vm.Script(wrappedCode);
+      script.runInContext(vmCtx, { timeout: 5000 });
+      return Boolean(sandbox.result);
     } catch {
       return false;
     }

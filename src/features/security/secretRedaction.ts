@@ -675,24 +675,27 @@ export class SecretRedactionSystem extends EventEmitter {
 
   private encrypt(text: string): string {
     const salt = crypto.randomBytes(16);
-    const iv = crypto.randomBytes(16);
+    const iv = crypto.randomBytes(12); // 96-bit IV recommended for GCM
     const key = crypto.scryptSync(this.encryptionKey, salt, 32);
-    const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    return salt.toString('hex') + ':' + iv.toString('hex') + ':' + encrypted;
+    const authTag = cipher.getAuthTag().toString('hex');
+    return [salt.toString('hex'), iv.toString('hex'), authTag, encrypted].join(':');
   }
 
   private decrypt(encryptedText: string): string {
     const parts = encryptedText.split(':');
-    if (parts.length !== 3) {
+    if (parts.length !== 4) {
       throw new Error('Invalid encrypted data format');
     }
-    const [saltHex, ivHex, encrypted] = parts;
+    const [saltHex, ivHex, authTagHex, encrypted] = parts;
     const salt = Buffer.from(saltHex, 'hex');
     const iv = Buffer.from(ivHex, 'hex');
+    const authTag = Buffer.from(authTagHex, 'hex');
     const key = crypto.scryptSync(this.encryptionKey, salt, 32);
-    const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;

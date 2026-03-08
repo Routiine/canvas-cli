@@ -9,6 +9,7 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as crypto from 'crypto';
+import * as vm from 'vm';
 
 const execAsync = promisify(exec);
 
@@ -508,10 +509,9 @@ export class AutomaticBugDetector extends EventEmitter {
   }
   
   private async validateFix(bug: Bug, original: string, fixed: string): Promise<boolean> {
-    // Check syntax is valid
+    // Check syntax is valid using sandboxed VM parse
     try {
-      // Try to parse the fixed code
-      new Function(fixed);
+      new vm.Script(fixed);
     } catch (error) {
       return false;
     }

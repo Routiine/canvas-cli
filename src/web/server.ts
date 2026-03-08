@@ -1,10 +1,12 @@
 import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import { createServer, type Server as HttpServer } from 'http';
 import path from 'path';
 import fs from 'fs-extra';
 import chalk from 'chalk';
+import crypto from 'crypto';
 import type { Message} from '../types.js';
 import { Tool } from '../types.js';
 import { ToolRegistry } from '../tools/registry.js';
@@ -16,6 +18,56 @@ interface WebSession {
   created: Date;
   messages: Message[];
   active: boolean;
+}
+
+/**
+ * Bearer token authentication middleware.
+ * Validates the Authorization header against the CANVAS_API_KEY environment variable.
+ * Skips authentication for /health and /api/health endpoints.
+ */
+function bearerAuthMiddleware(req: Request, res: Response, next: NextFunction): void {
+  // Allow health checks without authentication
+  if (req.path === '/health' || req.path === '/api/health') {
+    next();
+    return;
+  }
+
+  const apiKey = process.env.CANVAS_API_KEY;
+
+  // If no API key is configured, reject all requests with a setup error
+  if (!apiKey) {
+    res.status(500).json({
+      error: 'Server misconfigured',
+      message: 'CANVAS_API_KEY environment variable is not set'
+    });
+    return;
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Missing or malformed Authorization header. Expected: Bearer <token>'
+    });
+    return;
+  }
+
+  const token = authHeader.slice(7);
+
+  // Constant-time comparison to prevent timing attacks
+  const tokenBuffer = Buffer.from(token);
+  const apiKeyBuffer = Buffer.from(apiKey);
+
+  if (tokenBuffer.length !== apiKeyBuffer.length ||
+      !crypto.timingSafeEqual(tokenBuffer, apiKeyBuffer)) {
+    res.status(403).json({
+      error: 'Forbidden',
+      message: 'Invalid API key'
+    });
+    return;
+  }
+
+  next();
 }
 
 /**
@@ -92,12 +144,42 @@ export class WebUIServer {
 
     this.setupMiddleware();
     this.setupRoutes();
+    this.setupSocketAuth();
     this.setupSocketHandlers();
+  }
+
+  /**
+   * Add authentication middleware for Socket.IO connections.
+   * Clients must pass the API key as auth.token in the handshake.
+   */
+  private setupSocketAuth(): void {
+    this.io.use((socket, next) => {
+      const apiKey = process.env.CANVAS_API_KEY;
+      if (!apiKey) {
+        return next(new Error('Server misconfigured: CANVAS_API_KEY not set'));
+      }
+
+      const token = socket.handshake.auth?.token as string | undefined;
+      if (!token) {
+        return next(new Error('Authentication required: pass auth.token in handshake'));
+      }
+
+      const tokenBuffer = Buffer.from(token);
+      const apiKeyBuffer = Buffer.from(apiKey);
+
+      if (tokenBuffer.length !== apiKeyBuffer.length ||
+          !crypto.timingSafeEqual(tokenBuffer, apiKeyBuffer)) {
+        return next(new Error('Invalid API key'));
+      }
+
+      next();
+    });
   }
 
   private setupMiddleware(): void {
     this.app.use(cors());
     this.app.use(express.json());
+    this.app.use(bearerAuthMiddleware);
     this.app.use(express.static(path.join(__dirname, 'public')));
   }
 

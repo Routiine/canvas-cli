@@ -11,6 +11,7 @@ import * as v8 from 'v8';
 import * as os from 'os';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as vm from 'vm';
 
 const execAsync = promisify(exec);
 
@@ -721,13 +722,13 @@ export class PerformanceOptimizationAI extends EventEmitter {
   }
   
   private async validateOptimization(original: string, optimized: string): Promise<boolean> {
-    // Check syntax is valid
+    // Check syntax is valid using sandboxed VM parse
     try {
-      new Function(optimized);
+      new vm.Script(optimized);
     } catch (error) {
       return false;
     }
-    
+
     // Check functionality is preserved (would run tests)
     try {
       await execAsync('npm test');
@@ -736,17 +737,19 @@ export class PerformanceOptimizationAI extends EventEmitter {
       return false;
     }
   }
-  
+
   private async measurePerformance(code: string): Promise<number> {
     const start = performance.now();
-    
-    // Execute code in sandboxed environment
+
+    // Execute code in sandboxed VM with timeout
     try {
-      new Function(code)();
+      const script = new vm.Script(code);
+      const sandbox = vm.createContext({ console, setTimeout, clearTimeout });
+      script.runInContext(sandbox, { timeout: 10000 });
     } catch {
       // Code might not be executable standalone
     }
-    
+
     const end = performance.now();
     return end - start;
   }

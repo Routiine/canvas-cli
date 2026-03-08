@@ -162,44 +162,43 @@ class APIKeyManager {
   }
 
   /**
-   * Secure encryption for API keys with random salt and IV
+   * Secure authenticated encryption for API keys using AES-256-GCM.
+   * Format: salt(hex):iv(hex):authTag(hex):ciphertext(hex)
    */
   private encrypt(text: string): string {
     if (!this.encryptionKey) return text;
 
-    const algorithm = 'aes-256-cbc';
-    // Generate unique random salt for each encryption (16 bytes)
     const salt = crypto.randomBytes(16);
     const key = crypto.scryptSync(this.encryptionKey, salt, 32);
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
+    const iv = crypto.randomBytes(12); // 96-bit IV recommended for GCM
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
 
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
+    const authTag = cipher.getAuthTag().toString('hex');
 
-    // Format: salt:iv:encrypted (all in hex)
-    return salt.toString('hex') + ':' + iv.toString('hex') + ':' + encrypted;
+    return [salt.toString('hex'), iv.toString('hex'), authTag, encrypted].join(':');
   }
 
   /**
-   * Secure decryption for API keys
+   * Secure authenticated decryption for API keys using AES-256-GCM.
    */
   private decrypt(encryptedText: string): string {
     if (!this.encryptionKey) return encryptedText;
 
-    const algorithm = 'aes-256-cbc';
     const parts = encryptedText.split(':');
 
-    if (parts.length !== 3) {
-      throw new Error('Invalid encrypted key format - legacy format no longer supported');
+    if (parts.length !== 4) {
+      throw new Error('Invalid encrypted key format');
     }
 
-    // Format: salt:iv:encrypted
-    const [saltHex, ivHex, encrypted] = parts;
+    const [saltHex, ivHex, authTagHex, encrypted] = parts;
     const salt = Buffer.from(saltHex, 'hex');
     const key = crypto.scryptSync(this.encryptionKey, salt, 32);
     const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipheriv(algorithm, key, iv);
+    const authTag = Buffer.from(authTagHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(authTag);
 
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
