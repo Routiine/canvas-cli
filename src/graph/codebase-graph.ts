@@ -31,6 +31,14 @@ export async function buildIndex(rootDir: string = process.cwd(), verbose = fals
 
     await Promise.all(batch.map(async (filePath) => {
       try {
+        // Skip files whose mtime hasn't changed since last index
+        const stat = await fs.stat(filePath);
+        const existing = getGraphStorage().getFileNode(filePath);
+        if (existing && existing.updated_at >= stat.mtimeMs) {
+          processed++;
+          return;
+        }
+
         const content = await fs.readFile(filePath, 'utf-8');
         const { nodes, edges } = walkSourceFile(filePath, content);
         const enriched = await enrichNodes(nodes);

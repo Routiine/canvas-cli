@@ -8,7 +8,9 @@ import type { ConversationCheckpoint, Message } from './types.js';
 export class CheckpointManager {
   private checkpointPath: string;
   private projectHash: string;
-  
+  private autoSaveTimer: NodeJS.Timeout | null = null;
+  private static readonly AUTO_SAVE_DEBOUNCE_MS = 2000;
+
   constructor() {
     const projectPath = process.cwd();
     this.projectHash = crypto.createHash('md5').update(projectPath).digest('hex');
@@ -31,8 +33,8 @@ export class CheckpointManager {
     };
     
     const filePath = path.join(this.checkpointPath, `${id}.json`);
-    await fs.writeJSON(filePath, checkpoint, { spaces: 2 });
-    
+    await fs.writeJSON(filePath, checkpoint);
+
     console.log(chalk.green(`✓ Saved checkpoint: ${id}`));
     return id;
   }
@@ -82,14 +84,24 @@ export class CheckpointManager {
   }
 
   async autoSave(messages: Message[]): Promise<void> {
-    const autoSavePath = path.join(this.checkpointPath, 'autosave.json');
-    const checkpoint: ConversationCheckpoint = {
-      id: 'autosave',
-      timestamp: new Date(),
-      messages
-    };
-    
-    await fs.writeJSON(autoSavePath, checkpoint, { spaces: 2 });
+    // Debounce: cancel any pending auto-save and schedule a new one
+    if (this.autoSaveTimer) {
+      clearTimeout(this.autoSaveTimer);
+    }
+
+    return new Promise<void>((resolve) => {
+      this.autoSaveTimer = setTimeout(async () => {
+        this.autoSaveTimer = null;
+        const autoSavePath = path.join(this.checkpointPath, 'autosave.json');
+        const checkpoint: ConversationCheckpoint = {
+          id: 'autosave',
+          timestamp: new Date(),
+          messages
+        };
+        await fs.writeJSON(autoSavePath, checkpoint);
+        resolve();
+      }, CheckpointManager.AUTO_SAVE_DEBOUNCE_MS);
+    });
   }
 
   async loadAutoSave(): Promise<ConversationCheckpoint | null> {

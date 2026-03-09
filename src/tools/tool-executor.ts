@@ -105,8 +105,11 @@ export class ToolExecutor extends EventEmitter {
         ...context
       };
 
-      // Log execution
+      // Log execution (cap at 500 entries to bound memory usage)
       this.executionHistory.push(executionContext);
+      if (this.executionHistory.length > 500) {
+        this.executionHistory = this.executionHistory.slice(-500);
+      }
       this.emit('tool-execution-start', executionContext);
 
       // Check permission system

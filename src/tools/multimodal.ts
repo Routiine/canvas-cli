@@ -1,13 +1,14 @@
 import { BaseTool } from './base.js';
-import sharp from 'sharp';
 import { parsePDF } from '../utils/pdf-loader.js';
 import fs from 'fs-extra';
 import path from 'path';
 import chalk from 'chalk';
 import { fileTypeFromBuffer } from 'file-type';
 import exifReader from 'exif-reader';
-import ffmpeg from 'fluent-ffmpeg';
 import { promisify } from 'util';
+
+// Note: sharp and fluent-ffmpeg are loaded dynamically inside execute() methods
+// to avoid heavy native module initialization on every startup.
 
 
 export class ImageAnalysisTool extends BaseTool {
@@ -30,9 +31,11 @@ export class ImageAnalysisTool extends BaseTool {
       throw new Error(`Image file not found: ${params.path}`);
     }
 
+    const sharp = (await import('sharp')).default;
+
     const buffer = await fs.readFile(imagePath);
     const fileType = await fileTypeFromBuffer(buffer);
-    
+
     if (!fileType || !fileType.mime.startsWith('image/')) {
       throw new Error('File is not a valid image');
     }
@@ -162,7 +165,10 @@ export class AudioTranscriptionTool extends BaseTool {
 
   async execute(params: { path: string; language?: string; timestamps?: boolean }): Promise<any> {
     const audioPath = path.resolve(params.path);
-    
+
+    // Dynamically import fluent-ffmpeg to avoid loading native binaries at startup
+    const ffmpeg = (await import('fluent-ffmpeg')).default;
+
     // Get audio metadata using ffmpeg
     const getMetadata = promisify(ffmpeg.ffprobe);
     const metadata = await getMetadata(audioPath) as any;
@@ -203,7 +209,10 @@ export class VideoAnalysisTool extends BaseTool {
 
   async execute(params: { path: string; extract_frames?: number; get_subtitles?: boolean }): Promise<any> {
     const videoPath = path.resolve(params.path);
-    
+
+    // Dynamically import fluent-ffmpeg to avoid loading native binaries at startup
+    const ffmpeg = (await import('fluent-ffmpeg')).default;
+
     // Get video metadata
     const getMetadata = promisify(ffmpeg.ffprobe);
     const metadata = await getMetadata(videoPath) as any;

@@ -151,10 +151,18 @@ export function formatTokenCount(count: number): string {
 }
 
 /**
- * Create a token counter instance
+ * Create a token counter instance.
+ * Returns a cached singleton to avoid repeated tiktoken WASM init overhead.
+ * If a different model is requested than what's cached, a new counter is created.
  */
+let _cachedCounter: TokenCounter | null = null;
+let _cachedCounterModel: string | undefined = undefined;
 export function createTokenCounter(model?: string): TokenCounter {
-  return new TokenCounter(model);
+  if (!_cachedCounter || model !== _cachedCounterModel) {
+    _cachedCounter = new TokenCounter(model);
+    _cachedCounterModel = model;
+  }
+  return _cachedCounter;
 }
 
 /**

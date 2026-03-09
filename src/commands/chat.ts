@@ -204,6 +204,11 @@ Remember: If the user refers to files or content from previous messages, use tha
       conversationHistory.push(`User: ${userInput}`);
       conversationHistory.push(`Canvas CLI: ${response.substring(0, 500)}${response.length > 500 ? '...' : ''}`);
 
+      // Cap conversation history to prevent unbounded memory growth
+      if (conversationHistory.length > 500) {
+        conversationHistory.splice(0, conversationHistory.length - 250);
+      }
+
       await hookSystem.executeHooks('post-command', {
         command: userInput,
         timestamp: new Date(),
@@ -219,6 +224,11 @@ Remember: If the user refers to files or content from previous messages, use tha
       const response = await generateChatResponseWithHistory(userInput, model, conversationHistory);
       conversationHistory.push(`User: ${userInput}`);
       conversationHistory.push(`Canvas CLI: ${response}`);
+
+      // Cap conversation history to prevent unbounded memory growth
+      if (conversationHistory.length > 500) {
+        conversationHistory.splice(0, conversationHistory.length - 250);
+      }
 
       transcriptManager.addEntry({
         role: 'assistant',

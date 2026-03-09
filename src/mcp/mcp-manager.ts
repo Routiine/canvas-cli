@@ -140,12 +140,19 @@ export class MCPManager extends EventEmitter {
     if (this.initialized) return;
 
     try {
-      for (const server of this.config.servers) {
-        if (server.enabled !== false) {
-          await this.startServer(server);
+      const enabledServers = this.config.servers.filter(s => s.enabled !== false);
+      const results = await Promise.allSettled(
+        enabledServers.map(server => this.startServer(server))
+      );
+
+      // Log failures but don't block initialization
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status === 'rejected') {
+          console.error(`Failed to start MCP server ${enabledServers[i].name}:`, result.reason);
         }
       }
-      
+
       this.initialized = true;
       this.emit('initialized');
     } catch (error) {
@@ -677,5 +684,9 @@ export function createMCPCommand(program: any): void {
     });
 }
 
-// Export singleton instance
-export const mcpManager = MCPManager.getInstance();
+// Lazy singleton getter — avoids triggering config loading at import time
+let _mcpManager: MCPManager | null = null;
+export function getMCPManager(): MCPManager {
+  if (!_mcpManager) _mcpManager = MCPManager.getInstance();
+  return _mcpManager;
+}

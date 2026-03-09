@@ -176,6 +176,13 @@ export class GraphStorage {
     `).all(fileId) as GraphNode[];
   }
 
+  getFileNode(filePath: string): GraphNode | undefined {
+    const database = getDb();
+    return database.prepare(
+      "SELECT * FROM graph_nodes WHERE file_path = ? AND node_type = 'file' LIMIT 1"
+    ).get(filePath) as GraphNode | undefined;
+  }
+
   getNodesByFile(filePath: string): GraphNode[] {
     const database = getDb();
     return database.prepare('SELECT * FROM graph_nodes WHERE file_path = ? ORDER BY line_start').all(filePath) as GraphNode[];
