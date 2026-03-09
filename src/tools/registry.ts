@@ -1,4 +1,5 @@
 import type { Tool, ToolParameterDefinition } from '../types.js';
+import { toolRegistry as executorRegistry } from './tool-executor.js';
 
 interface ToolDefinition {
   type: 'function';
@@ -11,6 +12,66 @@ interface ToolDefinition {
       required: string[];
     };
   };
+}
+
+/**
+ * Sanitize tool parameters for audit logging.
+ * Truncates string values to 200 characters to avoid logging sensitive data.
+ */
+function sanitizeParams(params: Record<string, unknown>): string {
+  if (!params || typeof params !== 'object') return '{}';
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === 'string') {
+      sanitized[key] = value.length > 200 ? value.slice(0, 200) + '...[truncated]' : value;
+    } else {
+      sanitized[key] = value;
+    }
+  }
+  return JSON.stringify(sanitized);
+}
+
+/**
+ * Simple per-tool circuit breaker for the main chat tool path.
+ * After FAILURE_THRESHOLD consecutive failures, the tool is skipped
+ * for COOLDOWN_MS milliseconds.
+ */
+class SimpleCircuitBreaker {
+  private consecutiveFailures: Map<string, number> = new Map();
+  private openUntil: Map<string, number> = new Map();
+  private static readonly FAILURE_THRESHOLD = 3;
+  private static readonly COOLDOWN_MS = 60_000;
+
+  isOpen(toolName: string): boolean {
+    const until = this.openUntil.get(toolName);
+    if (until && Date.now() < until) {
+      return true;
+    }
+    // Reset if cooldown expired
+    if (until && Date.now() >= until) {
+      this.openUntil.delete(toolName);
+      this.consecutiveFailures.delete(toolName);
+    }
+    return false;
+  }
+
+  recordSuccess(toolName: string): void {
+    this.consecutiveFailures.delete(toolName);
+    this.openUntil.delete(toolName);
+  }
+
+  recordFailure(toolName: string): void {
+    const count = (this.consecutiveFailures.get(toolName) || 0) + 1;
+    this.consecutiveFailures.set(toolName, count);
+    if (count >= SimpleCircuitBreaker.FAILURE_THRESHOLD) {
+      const cooldownEnd = Date.now() + SimpleCircuitBreaker.COOLDOWN_MS;
+      this.openUntil.set(toolName, cooldownEnd);
+      console.warn(
+        `[circuit-breaker] Tool "${toolName}" tripped after ${count} consecutive failures. ` +
+        `Skipping for ${SimpleCircuitBreaker.COOLDOWN_MS / 1000}s.`
+      );
+    }
+  }
 }
 import {
   ReadFileTool,
@@ -166,6 +227,7 @@ export class ToolRegistry {
   private dynamicToolCreator!: DynamicToolCreator;
   private theme: ThemeManager;
   private _cachedToolDefs: ToolDefinition[] | null = null;
+  private circuitBreaker: SimpleCircuitBreaker = new SimpleCircuitBreaker();
 
   constructor(theme?: ThemeManager) {
     this.theme = theme || new ThemeManager('slate');
@@ -375,6 +437,21 @@ export class ToolRegistry {
   register(tool: Tool): void {
     this.tools.set(tool.name, tool);
     this._cachedToolDefs = null;
+
+    // Sync with the ToolExecutor's singleton registry so MCP and the main
+    // chat loop share the same tool set (Fix #1: consolidate dual registries).
+    try {
+      if (!executorRegistry.get(tool.name)) {
+        executorRegistry.register({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters || {},
+          execute: tool.execute.bind(tool),
+        });
+      }
+    } catch {
+      // Non-critical: executor registry may not be fully initialized yet
+    }
   }
 
   unregister(name: string): void {
@@ -424,13 +501,51 @@ export class ToolRegistry {
       throw new Error(`Tool is disabled: ${name}`);
     }
 
-    // Check if tool has a run method (BaseTool), otherwise use execute directly
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const toolWithRun = tool as Tool & { run?: (params: any) => Promise<any> };
-    if (typeof toolWithRun.run === 'function') {
-      return await toolWithRun.run(params);
+    // Fix #6: Check circuit breaker before executing
+    if (this.circuitBreaker.isOpen(name)) {
+      throw new Error(`Tool "${name}" is temporarily unavailable (circuit breaker open)`);
     }
-    return await tool.execute(params);
+
+    const startTime = Date.now();
+    let resultStatus: 'success' | 'error' = 'success';
+
+    try {
+      // Check if tool has a run method (BaseTool), otherwise use execute directly
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toolWithRun = tool as Tool & { run?: (params: any) => Promise<any> };
+      let result: unknown;
+      if (typeof toolWithRun.run === 'function') {
+        result = await toolWithRun.run(params);
+      } else {
+        result = await tool.execute(params);
+      }
+
+      this.circuitBreaker.recordSuccess(name);
+      return result;
+    } catch (error) {
+      resultStatus = 'error';
+      this.circuitBreaker.recordFailure(name);
+      throw error;
+    } finally {
+      // Fix #2: Audit logging for every tool execution
+      const durationMs = Date.now() - startTime;
+      try {
+        const { getAuditLogger } = await import('../enterprise/audit-logger.js');
+        const logger = getAuditLogger();
+        logger.log({
+          event_type: 'tool_exec',
+          action: name,
+          details: JSON.stringify({
+            params: sanitizeParams(params || {}),
+            result: resultStatus,
+            duration_ms: durationMs,
+          }),
+          result: resultStatus,
+        });
+      } catch {
+        // Audit logging is best-effort; do not break tool execution
+      }
+    }
   }
 
   getToolDefinitions(): ToolDefinition[] {

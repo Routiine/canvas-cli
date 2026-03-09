@@ -185,6 +185,9 @@ export class ToolExecutor extends EventEmitter {
         duration: Date.now() - startTime
       });
 
+      // Fix #2: Audit log successful tool execution
+      void this.auditLogExecution(toolName, parameters, 'success', Date.now() - startTime);
+
       return {
         success: true,
         output: result,
@@ -196,7 +199,10 @@ export class ToolExecutor extends EventEmitter {
     } catch (error: any) {
       // Handle error
       errorHandler.handleError(`tool-${toolName}`, error, { parameters });
-      
+
+      // Fix #2: Audit log failed tool execution
+      void this.auditLogExecution(toolName, parameters, 'error', Date.now() - startTime);
+
       this.emit('tool-execution-error', {
         toolName,
         error,
@@ -210,6 +216,41 @@ export class ToolExecutor extends EventEmitter {
         duration: Date.now() - startTime,
         retries
       };
+    }
+  }
+
+  /**
+   * Fix #2: Log tool execution to the audit system.
+   * Best-effort -- does not throw if the audit logger is unavailable.
+   */
+  private async auditLogExecution(
+    toolName: string,
+    parameters: any,
+    result: 'success' | 'error',
+    durationMs: number
+  ): Promise<void> {
+    try {
+      const { getAuditLogger } = await import('../enterprise/audit-logger.js');
+      const logger = getAuditLogger();
+      // Sanitize params: truncate string values to 200 chars
+      const sanitized: Record<string, unknown> = {};
+      if (parameters && typeof parameters === 'object') {
+        for (const [key, value] of Object.entries(parameters)) {
+          if (typeof value === 'string') {
+            sanitized[key] = value.length > 200 ? value.slice(0, 200) + '...[truncated]' : value;
+          } else {
+            sanitized[key] = value;
+          }
+        }
+      }
+      logger.log({
+        event_type: 'tool_exec',
+        action: toolName,
+        details: JSON.stringify({ params: sanitized, result, duration_ms: durationMs }),
+        result,
+      });
+    } catch {
+      // Audit logging is best-effort
     }
   }
 

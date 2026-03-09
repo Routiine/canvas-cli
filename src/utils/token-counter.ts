@@ -158,6 +158,55 @@ export function createTokenCounter(model?: string): TokenCounter {
 }
 
 /**
+ * Fix #5: Unified token counting entry point.
+ *
+ * Tries the AdvancedTokenizer (model-specific HuggingFace tokenizer) first,
+ * then falls back to the tiktoken-based TokenCounter (cl100k_base / GPT-2).
+ *
+ * This is the single public API consumers should use for counting tokens.
+ */
+let _advancedTokenizer: { countTokens: (text: string) => number; updateForModel: (model: string) => Promise<void> } | null = null;
+let _advancedTokenizerModel: string | null = null;
+let _advancedInitFailed = false;
+
+export async function countTokens(text: string, model?: string): Promise<number> {
+  if (!text) return 0;
+
+  // Try advanced tokenizer first (unless previous init failed)
+  if (!_advancedInitFailed) {
+    try {
+      if (!_advancedTokenizer) {
+        const { AdvancedTokenizer } = await import('../tokenization/advanced-tokenizer.js');
+        const tokenizer = new AdvancedTokenizer();
+        await tokenizer.initialize();
+        _advancedTokenizer = tokenizer;
+        _advancedTokenizerModel = model || null;
+      }
+
+      // Update tokenizer if model changed
+      if (model && model !== _advancedTokenizerModel && _advancedTokenizer.updateForModel) {
+        await _advancedTokenizer.updateForModel(model);
+        _advancedTokenizerModel = model;
+      }
+
+      const count = _advancedTokenizer.countTokens(text);
+      if (count > 0) return count;
+    } catch {
+      // AdvancedTokenizer unavailable (missing @xenova/transformers, etc.)
+      _advancedInitFailed = true;
+    }
+  }
+
+  // Fallback to tiktoken-based counter
+  const counter = new TokenCounter(model || 'gpt-4');
+  try {
+    return counter.countTokens(text);
+  } finally {
+    counter.dispose();
+  }
+}
+
+/**
  * Calculate cost estimate for token usage
  */
 export function calculateTokenCost(

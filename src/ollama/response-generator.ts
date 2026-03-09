@@ -16,6 +16,40 @@ import { getSkillSystem } from '../skills/skillSystem.js';
 import { TaskPlanner, resetTaskPlanner } from '../ui/taskPlanner.js';
 
 /**
+ * Fix #3: Lazy-loaded secret redaction for the LLM message pipeline.
+ * The SecretRedactionSystem is initialized once on first use. If it
+ * cannot be loaded (missing config, optional dependency, etc.), all
+ * text passes through unchanged so startup is never broken.
+ */
+let _redactFn: ((text: string, source?: string) => string) | null = null;
+
+// Initialize redaction lazily at first use (async)
+let _redactReady: Promise<void> | null = null;
+function ensureRedactionReady(): Promise<void> {
+  if (!_redactReady) {
+    _redactReady = (async () => {
+      try {
+        const mod = await import('../features/security/secretRedaction.js');
+        const system = mod.getSecretRedactionSystem();
+        _redactFn = (text: string, source?: string) => system.redactText(text, source).redactedText;
+      } catch {
+        _redactFn = (text: string) => text;
+      }
+    })();
+  }
+  return _redactReady;
+}
+
+/**
+ * Redact secrets from text before sending to LLM.
+ * Falls back to identity function if redaction system is unavailable.
+ */
+async function redactSecrets(text: string, source: string = 'llm-pipeline'): Promise<string> {
+  await ensureRedactionReady();
+  return _redactFn ? _redactFn(text, source) : text;
+}
+
+/**
  * Build the system prompt for Canvas CLI
  */
 function buildSystemPrompt(model: string, isExecutionMode: boolean): string {
@@ -241,6 +275,9 @@ export async function generateResponseWithTools(
         .join('\n');
       enhancedPrompt += `\n\nTASK PLAN (execute these steps in order):\n${taskList}\n\nExecute each step using the appropriate tools.`;
     }
+
+    // Fix #3: Redact secrets from the prompt before sending to the LLM
+    enhancedPrompt = await redactSecrets(enhancedPrompt, 'user-prompt');
 
     // Use non-streaming for execution mode (more reliable tool calls)
     const useStreaming = !isExecutionMode;
@@ -795,12 +832,16 @@ ${skillContext}
 Previous conversation:
 ${history.slice(-10).join('\n')}`;
 
-  const enhancedPrompt = `${systemPrompt}\n\nUser: ${prompt}\n\nCanvas CLI:`;
+  // Fix #3: Redact secrets before sending to LLM
+  const redactedPrompt = await redactSecrets(
+    `${systemPrompt}\n\nUser: ${prompt}\n\nCanvas CLI:`,
+    'chat-history-prompt'
+  );
 
   try {
     const request: OllamaGenerateRequest = {
       model: effectiveModel,
-      prompt: enhancedPrompt,
+      prompt: redactedPrompt,
       stream: true,
     };
 

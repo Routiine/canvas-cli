@@ -406,23 +406,39 @@ export class OllamaProvider extends BaseProvider {
 
   // Private methods
 
+  /**
+   * Fix #4: Replace polling busy-wait with proper async push/pull pattern.
+   * Uses a simple channel: stream events push into the queue and resolve
+   * a pending pull; the generator awaits until the next chunk is available.
+   */
   private async *createStreamGenerator(
     stream: any,
-    processChunk: (chunk: Buffer) => void
+    _processChunk: (chunk: Buffer) => void
   ): AsyncGenerator<StreamChunk, void, unknown> {
-    const chunks: StreamChunk[] = [];
-    let finished = false;
-    let error: Error | null = null;
+    // Pending queue and resolver for push/pull coordination
+    const queue: Array<StreamChunk | { error: Error } | null> = [];
+    let resolve: (() => void) | null = null;
 
-    // Set up stream handlers
+    const notify = () => {
+      if (resolve) {
+        const r = resolve;
+        resolve = null;
+        r();
+      }
+    };
+
+    const waitForData = (): Promise<void> => {
+      if (queue.length > 0) return Promise.resolve();
+      return new Promise<void>((r) => { resolve = r; });
+    };
+
+    // Set up stream handlers that push into the queue
     stream.on('data', (chunk: Buffer) => {
       try {
-        const lines = chunk.toString().split('\n').filter(line => line.trim());
-        
+        const lines = chunk.toString().split('\n').filter((line: string) => line.trim());
         for (const line of lines) {
           try {
             const data: OllamaGenerateResponse = JSON.parse(line);
-            
             const streamChunk: StreamChunk = {
               content: data.response || '',
               done: data.done || false,
@@ -432,48 +448,50 @@ export class OllamaProvider extends BaseProvider {
                 totalTokens: (data.prompt_eval_count || 0) + (data.eval_count || 0)
               } : undefined
             };
-            
-            chunks.push(streamChunk);
-          } catch (parseError) {
+            queue.push(streamChunk);
+          } catch {
             // Skip invalid JSON lines
           }
         }
-      } catch (err: any) {
-        error = err;
+      } catch (err: unknown) {
+        queue.push({ error: err instanceof Error ? err : new Error(String(err)) });
       }
+      notify();
     });
 
     stream.on('end', () => {
-      finished = true;
+      queue.push(null); // sentinel for end-of-stream
+      notify();
     });
 
     stream.on('error', (err: Error) => {
-      error = err;
-      finished = true;
+      queue.push({ error: err });
+      notify();
     });
 
-    // Yield chunks as they arrive
-    while (!finished) {
-      if (error) {
-        throw error;
-      }
-      
-      while (chunks.length > 0) {
-        const chunk = chunks.shift()!;
-        yield chunk;
-        
-        if (chunk.done) {
+    // Pull loop: await data, yield chunks, stop on done/end/error
+    while (true) {
+      await waitForData();
+
+      while (queue.length > 0) {
+        const item = queue.shift()!;
+
+        // End-of-stream sentinel
+        if (item === null) {
+          return;
+        }
+
+        // Error from stream
+        if ('error' in item) {
+          throw item.error;
+        }
+
+        // Normal chunk
+        yield item;
+        if (item.done) {
           return;
         }
       }
-      
-      // Wait a bit before checking again
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-
-    // Yield any remaining chunks
-    while (chunks.length > 0) {
-      yield chunks.shift()!;
     }
   }
 
