@@ -74,8 +74,12 @@ function validateConfig(userConfig: any): Config {
         warnings.push(`Invalid ollamaUrl "${userConfig.ollamaUrl}", using default`);
       }
     }
+    // Migrate: both "model" and "defaultModel" are accepted from old configs.
+    // Canonical key is "defaultModel". "model" is promoted and ignored thereafter.
     if (typeof userConfig.defaultModel === 'string') config.defaultModel = userConfig.defaultModel;
-    if (typeof userConfig.model === 'string') config.model = userConfig.model;
+    if (typeof userConfig.model === 'string' && !userConfig.defaultModel) {
+      config.defaultModel = userConfig.model;
+    }
     if (typeof userConfig.theme === 'string') config.theme = userConfig.theme;
     if (typeof userConfig.vimMode === 'boolean') config.vimMode = userConfig.vimMode;
 

@@ -113,6 +113,14 @@ import {
   BrowserCloseTool
 } from './browser.js';
 import {
+  StagehandNavigateTool,
+  StagehandActTool,
+  StagehandExtractTool,
+  StagehandObserveTool,
+  StagehandCloseTool
+} from './browser-stagehand.js';
+import { SandboxedShellTool } from './shell-sandbox.js';
+import {
   RunTestsTool,
   TypeCheckTool,
   LintTool,
@@ -125,6 +133,7 @@ import {
   FindSymbolTool,
   IndexStatsTool
 } from './codebaseIndex.js';
+import { AstAnalyzerTool } from './ast-analyzer.js';
 import {
   CloudAgentLaunchTool,
   CloudAgentStatusTool,
@@ -297,6 +306,16 @@ export class ToolRegistry {
     this.register(new BrowserScrollTool());
     this.register(new BrowserCloseTool());
 
+    // AI-native browser automation tools (Stagehand)
+    this.register(new StagehandNavigateTool());
+    this.register(new StagehandActTool());
+    this.register(new StagehandExtractTool());
+    this.register(new StagehandObserveTool());
+    this.register(new StagehandCloseTool());
+
+    // Sandboxed shell execution (e2b)
+    this.register(new SandboxedShellTool());
+
     // Self-verification tools
     this.register(new RunTestsTool());
     this.register(new TypeCheckTool());
@@ -309,6 +328,9 @@ export class ToolRegistry {
     this.register(new SearchCodebaseTool());
     this.register(new FindSymbolTool());
     this.register(new IndexStatsTool());
+
+    // AST-aware code analysis
+    this.register(new AstAnalyzerTool());
 
     // Cloud agent tools
     this.register(new CloudAgentLaunchTool());
@@ -427,10 +449,15 @@ export class ToolRegistry {
     // Check if tool has a run method (BaseTool), otherwise use execute directly
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const toolWithRun = tool as Tool & { run?: (params: any) => Promise<any> };
-    if (typeof toolWithRun.run === 'function') {
-      return await toolWithRun.run(params);
-    }
-    return await tool.execute(params);
+    const result = typeof toolWithRun.run === 'function'
+      ? await toolWithRun.run(params)
+      : await tool.execute(params);
+
+    // Record in execution history so /history and /undo have real data
+    const { getInteractiveMode } = await import('../interactiveMode.js');
+    getInteractiveMode().recordExecution(name, params as Record<string, unknown>);
+
+    return result;
   }
 
   getToolDefinitions(): ToolDefinition[] {

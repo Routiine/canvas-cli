@@ -104,6 +104,21 @@ export class CheckpointManager {
     });
   }
 
+  /** Write autosave immediately (no debounce) — use on clean shutdown. */
+  async flushAutoSave(messages: Message[]): Promise<void> {
+    if (this.autoSaveTimer) {
+      clearTimeout(this.autoSaveTimer);
+      this.autoSaveTimer = null;
+    }
+    const autoSavePath = path.join(this.checkpointPath, 'autosave.json');
+    const checkpoint: ConversationCheckpoint = {
+      id: 'autosave',
+      timestamp: new Date(),
+      messages,
+    };
+    await fs.writeJSON(autoSavePath, checkpoint);
+  }
+
   async loadAutoSave(): Promise<ConversationCheckpoint | null> {
     const autoSavePath = path.join(this.checkpointPath, 'autosave.json');
     

@@ -2,6 +2,7 @@
  * Ollama response generation with streaming support
  */
 
+import { readFileSync, existsSync } from 'fs';
 import axios from 'axios';
 import chalk from 'chalk';
 import { loadConfig } from '../config.js';
@@ -14,64 +15,94 @@ import { parseToolCalls } from '../toolPrompt.js';
 import { forceToolExecution, getSimpleToolPrompt, getNextStepPrompt } from '../tools/forceExecute.js';
 import { getSkillSystem } from '../skills/skillSystem.js';
 import { TaskPlanner, resetTaskPlanner } from '../ui/taskPlanner.js';
+import { setLastOutput } from '../commands/index.js';
+import {
+  supportsNativeFunctionCalling,
+  callWithNativeTools,
+  streamChat,
+  fmtToolCall,
+  callGroqFallback,
+  type NativeMessage,
+} from './native-caller.js';
+import { getProjectContext, formatContextBlock } from './project-context.js';
 
 /**
- * Build the system prompt for Canvas CLI
+ * Build the system prompt for Canvas CLI.
+ *
+ * @param model           Active model name (used for identity disclosure)
+ * @param isExecutionMode True when the user's intent is classified as 'executable'
+ * @param useNativeCalling True when the model supports /api/chat native tool_calls.
+ *                         When true, text-format TOOL: instructions are omitted —
+ *                         the model calls tools via function-calling, not text markers.
  */
-function buildSystemPrompt(model: string, isExecutionMode: boolean): string {
+function buildSystemPrompt(model: string, isExecutionMode: boolean, useNativeCalling = false): string {
+  const projectCtx = formatContextBlock(getProjectContext());
   const modeDescription = isExecutionMode
-    ? 'You are currently in DEV MODE (EXECUTION enabled) and can run tools and commands.'
-    : 'You are currently in PLANNING MODE - discuss and plan without executing commands.';
+    ? 'You are currently in EXECUTION MODE and can invoke tools to complete tasks.'
+    : 'You are currently in PLANNING MODE — discuss and plan without executing commands.';
+
+  const sessionCtx = process.env.CANVAS_SESSION_CONTEXT ?? '';
 
   let systemPrompt = `You are Canvas CLI, a production-ready AI command-line interface assistant.
 You are version 2.0.0, built with TypeScript. ${modeDescription}
 When asked who you are, identify yourself as Canvas CLI, not as the underlying model (${model}).
 
 CRITICAL RULES - MUST FOLLOW:
-1. NEVER OUTPUT HTML TAGS - No <html>, <body>, <div>, etc.
+1. NEVER OUTPUT HTML TAGS — No <html>, <body>, <div>, etc.
 2. Use ONLY plain text or markdown formatting
 3. If you need to show code, use markdown code blocks with triple backticks
 4. NEVER generate HTML responses regardless of what was requested
-5. This is a command-line interface - HTML cannot be displayed
+5. This is a command-line interface — HTML cannot be displayed
 
-${isExecutionMode ? 'IMPORTANT: You are in EXECUTION MODE. You are self-aware and can improve yourself.' : 'IMPORTANT: You are in PLANNING MODE. Help the user plan and design without executing.'}`;
+${projectCtx}${sessionCtx ? `\n\n--- SESSION MEMORY ---\n${sessionCtx}\n---` : ''}`;
 
   if (isExecutionMode) {
-    systemPrompt += `
+    if (useNativeCalling) {
+      // ── Native function-calling path ──────────────────────────────────────
+      // The model receives structured tool schemas and returns tool_calls.
+      // Do NOT mention text-format TOOL: syntax here — it confuses the model.
+      systemPrompt += `
+
+EXECUTION MODE — FUNCTION CALLING ACTIVE:
+You have tools available. Use them to fulfill the user's request.
+Call the appropriate tool for each action rather than describing what you would do.
+
+Key tools available:
+- write_file   — create or overwrite files
+- read_file    — read file contents
+- list_files   — list directory contents
+- run_shell_command — execute shell commands
+- introspect_tools  — list all available tools
+- self_improve      — analyse a request and create a missing tool if needed
+
+If you are missing a capability, call self_improve to create it.
+Be direct and action-oriented — complete the task, don't just plan it.`;
+    } else {
+      // ── Legacy text-parsing path ──────────────────────────────────────────
+      // Older/unsupported models return tool calls as text markers.
+      systemPrompt += `
 
 TOOL EXECUTION INSTRUCTIONS:
 When you need to execute a tool, use the format: TOOL: toolname PARAMS: {json}
-DO NOT explain the tool call to the user - Canvas CLI will automatically execute it and show user-friendly feedback.
-Just include the tool syntax in your response and Canvas CLI will handle the rest.
+DO NOT explain the tool call to the user — Canvas CLI will automatically execute it.
+Just include the tool syntax in your response and Canvas CLI handles the rest.
 
-Example: If user asks to save a file, include:
-TOOL: write_file PARAMS: {"path": "filename.txt", "content": "file content"}
-
-Canvas CLI will automatically show: "Writing to filename.txt" and "Successfully wrote filename.txt"
+Example: TOOL: write_file PARAMS: {"path": "filename.txt", "content": "file content"}
 
 SELF-AWARENESS CAPABILITIES:
-- TOOL: introspect_tools - Check what tools you have and what you can do
-- TOOL: create_tool - Create new tools when needed for tasks
-- TOOL: self_improve - Analyze requests and create missing capabilities
+- TOOL: introspect_tools — check what tools you have
+- TOOL: create_tool — create new tools when needed
+- TOOL: self_improve — analyse and create missing capabilities
 
-Natural Request Examples -> Tool to Use:
-- "save this" / "save the PRD" / "put this in a file" -> TOOL: write_file
-- "create the document" / "make the prd file" -> TOOL: write_file PARAMS: {"path": "prd.md", "content": "..."}
-- "show me what's in X file" / "read X" -> TOOL: read_file
-- "run X command" / "execute X" -> TOOL: run_shell_command
-- "what files are here" / "list directory" -> TOOL: list_files
+Natural Request → Tool mapping:
+- "save this" / "put this in a file"   → TOOL: write_file
+- "show me what's in X" / "read X"    → TOOL: read_file
+- "run X command" / "execute X"       → TOOL: run_shell_command
+- "what files are here"               → TOOL: list_files
 
-SELF-IMPROVEMENT:
-If a user asks for something you can't do, use TOOL: self_improve to analyze the request
-and potentially create a new tool. For example:
-- User: "compress this folder" -> Create a compression tool
-- User: "analyze code complexity" -> Create a code analysis tool
-- User: "backup my project" -> Create a backup tool
-
-Be proactive: If you realize you're missing a capability, create it!
-
-When context mentions a PRD or document was created in conversation, and user asks to save/write/create it,
-use TOOL: write_file with the full content from the conversation context.`;
+If a user asks for something you can't do, use TOOL: self_improve to create it.
+Be proactive: if you realise you're missing a capability, create it!`;
+    }
   } else {
     systemPrompt += `
 
@@ -84,6 +115,51 @@ PLANNING MODE INSTRUCTIONS:
   }
 
   return systemPrompt;
+}
+
+// ─── Pre-execution file prefetch ─────────────────────────────────────────────
+
+/**
+ * Scan the prompt for file path references and read them before the first
+ * LLM call. This gives the model the current file contents without needing
+ * an explicit read_file round-trip, saving one tool-use cycle and ensuring
+ * the model edits the actual current state of the file.
+ *
+ * Caps at 3 files and 8000 chars each to avoid flooding the context window
+ * before the conversation even starts.
+ */
+async function prefetchFilesFromPrompt(
+  prompt: string,
+  _toolRegistry: unknown,
+): Promise<NativeMessage[]> {
+  const pathPattern = /(?:^|\s)((?:\.{0,2}\/)?[\w./\-]+\.(?:ts|js|tsx|jsx|py|go|rs|rb|java|cpp|c|h|json|md|yaml|yml|toml|sh|txt|sql|html|css))\b/gm;
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = pathPattern.exec(prompt)) !== null) {
+    const p = match[1].trim();
+    if (p && !seen.has(p)) { seen.add(p); paths.push(p); }
+  }
+
+  if (paths.length === 0) return [];
+
+  const prefetched: NativeMessage[] = [];
+  for (const filePath of paths) {
+    if (prefetched.length >= 3) break;
+    try {
+      if (!existsSync(filePath)) continue;
+      const content = readFileSync(filePath, 'utf-8');
+      if (content.length > 8000) continue;
+      prefetched.push({
+        role: 'system',
+        content: `[Pre-loaded: ${filePath}]\n\`\`\`\n${content}\n\`\`\``,
+      });
+    } catch {
+      // unreadable — skip
+    }
+  }
+
+  return prefetched;
 }
 
 /**
@@ -215,6 +291,100 @@ export async function generateResponseWithTools(
     return '';
   }
 
+  const ollamaUrl = config.ollamaUrl || config.ollama?.baseUrl || 'http://localhost:11434';
+
+  // ─── NATIVE FUNCTION CALLING PATH ─────────────────────────────────────────
+  // Use structured /api/chat tool_calls instead of regex text parsing whenever
+  // the model supports it. Falls through to the legacy path only if not.
+  if (isExecutionMode && supportsNativeFunctionCalling(effectiveModel)) {
+    spinner.start();
+    spinner.update(`${effectiveModel} (native tools)...`);
+
+    const systemContent = buildSystemPrompt(effectiveModel, true, true);
+    const messages: NativeMessage[] = [
+      { role: 'system', content: systemContent },
+      ...await prefetchFilesFromPrompt(prompt, toolRegistry),
+      { role: 'user',   content: prompt },
+    ];
+
+    let firstChunk = true;
+    let result: string;
+    let lastPromptTokens = 0;
+    let lastCompletionTokens = 0;
+
+    try {
+      result = await callWithNativeTools({
+        baseUrl: ollamaUrl,
+        model: effectiveModel,
+        messages,
+        registry: toolRegistry,
+        maxRounds: 15,
+        onText: (chunk) => {
+          if (firstChunk) {
+            spinner.stop(true, '');
+            firstChunk = false;
+            console.log('');
+          }
+          process.stdout.write(chunk);
+        },
+        onToolStart: (name, args) => {
+          if (firstChunk) { spinner.stop(true, ''); firstChunk = false; }
+          console.log('\n' + chalk.dim('  → ') + fmtToolCall(name, args));
+        },
+        onToolDone: (name, _result, ms) => {
+          const preview = _result.length > 80 ? _result.slice(0, 80) + '…' : _result;
+          console.log(chalk.dim(`  ✓ ${name} (${ms}ms): ${preview}`));
+        },
+        onError: (name, err) => {
+          console.log(chalk.red(`  ✗ ${name}: ${err.split('\n')[0]}`));
+        },
+        onCompact: () => {
+          console.log(chalk.hex('#444')('  ⟳ context compacted'));
+        },
+        onRound: (round, toolCount) => {
+          if (toolCount > 0) {
+            // Print newline to separate any streamed reasoning text from the
+            // tool execution lines, then restart the spinner for the next round.
+            if (!firstChunk) { console.log(''); firstChunk = true; }
+            spinner.start();
+            spinner.update(`round ${round} · ${toolCount} tool${toolCount > 1 ? 's' : ''}...`);
+          }
+        },
+        onUsage: (prompt, completion) => {
+          lastPromptTokens = prompt;
+          lastCompletionTokens = completion;
+        },
+      });
+    } catch (ollamaErr: unknown) {
+      // ── Groq fallback ──────────────────────────────────────────────────
+      const groqKey = config.groqApiKey || process.env.GROQ_API_KEY;
+      if (groqKey) {
+        spinner.stop(true, '');
+        const errMsg = ollamaErr instanceof Error ? ollamaErr.message : String(ollamaErr);
+        console.log(chalk.hex('#555')(`  ⚠ Ollama unavailable (${errMsg.slice(0, 60)})`));
+        console.log(chalk.hex('#555')('  ↳ falling back to Groq llama-3.3-70b-versatile...'));
+        console.log('');
+        result = await callGroqFallback(messages, groqKey);
+        process.stdout.write(result);
+        console.log('');
+      } else {
+        throw ollamaErr;
+      }
+    }
+
+    if (!firstChunk) console.log('');
+    // Show token usage if available
+    if (lastPromptTokens > 0 || lastCompletionTokens > 0) {
+      const total = lastPromptTokens + lastCompletionTokens;
+      console.log(chalk.hex('#383838')(
+        `  tokens: ${lastPromptTokens.toLocaleString()} in · ${lastCompletionTokens.toLocaleString()} out · ${total.toLocaleString()} total`
+      ));
+    }
+    setLastOutput(result);
+    return result;
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   // Task planning for complex requests (only on first attempt)
   let taskPlanner: TaskPlanner | null = null;
   if (retryCount === 0 && isExecutionMode && TaskPlanner.isComplexTask(prompt)) {
@@ -251,7 +421,6 @@ export async function generateResponseWithTools(
       stream: useStreaming
     };
 
-    const ollamaUrl = config.ollamaUrl || config.ollama?.baseUrl || 'http://localhost:11434';
     spinner.start();
     const fullUrl = `${ollamaUrl}/api/generate`;
     spinner.update(`${effectiveModel}...`);
@@ -583,6 +752,14 @@ export async function generateResponseWithTools(
           console.log(theme.dim(`  completed ${completedSteps.length} step(s)`));
         }
 
+        // Suggest git commit if any file operations were performed
+        const hadFileOps = completedSteps.some(s =>
+          s.includes('wrote') || s.includes('Created') || s.includes('Executed')
+        );
+        if (hadFileOps && completedSteps.length >= 2) {
+          console.log(theme.dim('  tip: run "canvas git commit-and-push" to commit these changes'));
+        }
+
         return allResponses;
       } catch (error: any) {
         spinner.stop(false, 'Connection failed');
@@ -735,6 +912,7 @@ export async function generateResponseWithTools(
       total: tokenCount.input + tokenCount.output
     });
 
+    setLastOutput(fullResponse);
     return fullResponse;
   } catch (error: any) {
     spinner.stop(false, 'Failed to connect');
@@ -773,83 +951,45 @@ export async function generateChatResponseWithHistory(
   const ollamaUrl = config.ollamaUrl || config.ollama?.baseUrl || 'http://localhost:11434';
   const effectiveModel = model || config.defaultModel || 'llama3.2:1b';
 
-  await checkOllamaConnection(ollamaUrl);
-
   const skillSystem = getSkillSystem();
   const skillContext = skillSystem.getSkillContext(prompt);
 
-  const systemPrompt = `You are Canvas CLI, a production-ready AI command-line interface assistant.
-You are version 2.0.0, built with TypeScript and featuring advanced tokenization, tool monitoring, context management, and workflow automation.
-You help users plan, design, and execute software projects. Currently you are in Planning Mode, where you discuss and plan without executing any commands.
-When asked who you are, identify yourself as Canvas CLI, not as the underlying model (${effectiveModel}) that powers your responses.
+  const projectCtx = formatContextBlock(getProjectContext());
+  const systemContent = `You are Canvas CLI, an AI command-line assistant.
+Help the user with their request using plain text or markdown — no HTML.
+${projectCtx}
+${skillContext}`;
 
-CRITICAL RULES - MUST FOLLOW:
-1. NEVER OUTPUT HTML TAGS - No <html>, <body>, <div>, etc.
-2. Use ONLY plain text or markdown formatting
-3. If you need to show code, use markdown code blocks with triple backticks
-4. NEVER generate HTML responses regardless of what was requested
-5. This is a command-line interface - HTML cannot be displayed
-6. When creating PRDs, use markdown format with # headers
-7. Focus on clear, structured documentation
-${skillContext}
-Previous conversation:
-${history.slice(-10).join('\n')}`;
-
-  const enhancedPrompt = `${systemPrompt}\n\nUser: ${prompt}\n\nCanvas CLI:`;
+  // Build a proper messages array from string history ("User: ..." / "Canvas CLI: ...")
+  const messages: NativeMessage[] = [{ role: 'system', content: systemContent }];
+  for (const line of history.slice(-20)) {
+    if (line.startsWith('User: ')) {
+      messages.push({ role: 'user', content: line.slice(6) });
+    } else if (line.startsWith('Canvas CLI: ')) {
+      messages.push({ role: 'assistant', content: line.slice(12) });
+    }
+  }
+  messages.push({ role: 'user', content: prompt });
 
   try {
-    const request: OllamaGenerateRequest = {
-      model: effectiveModel,
-      prompt: enhancedPrompt,
-      stream: true,
-    };
-
-    const response = await axios.post(`${ollamaUrl}/api/generate`, request, {
-      responseType: 'stream',
-    });
-
-    const stream = response.data;
     let fullResponse = '';
 
-    stream.on('data', (chunk: Buffer) => {
-      const lines = chunk.toString().split('\n').filter((line: string) => line.trim());
-      for (const line of lines) {
-        try {
-          const data: OllamaGenerateResponse = JSON.parse(line);
-          if (data.response) {
-            if (!data.response.includes('<html') && !data.response.includes('<!DOCTYPE') && !data.response.match(/<\/?[a-z][\s\S]*>/i)) {
-              process.stdout.write(chalk.white(data.response));
-            }
-            fullResponse += data.response;
-          }
-          if (data.done) {
-            process.stdout.write('\n');
-            return;
-          }
-        } catch (e) {
-          // Ignore invalid JSON
-        }
-      }
+    await streamChat({
+      baseUrl: ollamaUrl,
+      model: effectiveModel,
+      messages,
+      onChunk: (chunk) => {
+        process.stdout.write(chalk.white(chunk));
+        fullResponse += chunk;
+      },
     });
 
-    stream.on('end', () => {
-      if (!fullResponse) {
-        console.log(chalk.yellow('No response received'));
-      }
-    });
-
-    stream.on('error', (err: Error) => {
-      console.error(chalk.red('Stream error:'), err.message);
-    });
-
-    await new Promise((resolve) => {
-      stream.on('end', resolve);
-      stream.on('error', resolve);
-    });
-
+    process.stdout.write('\n');
+    setLastOutput(fullResponse);
     return fullResponse;
 
   } catch (error) {
+    // Fallback: try /api/generate if /api/chat fails (very old Ollama versions)
     if (axios.isAxiosError(error)) {
       console.error(chalk.red('Error:'), error.response?.data || error.message);
     } else {

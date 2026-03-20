@@ -29,21 +29,6 @@ import { MemoryHandler } from './handlers/memory-handler.js';
 import { WorkflowHandler } from './handlers/workflow-handler.js';
 import { SkillHandler } from './handlers/skill-handler.js';
 
-// Types for new features
-interface TodoItem {
-  id: string;
-  text: string;
-  status: 'pending' | 'in_progress' | 'done';
-  created: Date;
-}
-
-interface BackgroundTask {
-  id: string;
-  command: string;
-  status: 'running' | 'completed' | 'failed';
-  startTime: Date;
-  pid?: number;
-}
 
 export class CommandHandler {
   private themeManager: ThemeManager;
@@ -59,12 +44,8 @@ export class CommandHandler {
   private vscodeContext: any = null;
   private orchestrator: OrchestratorCommand;
 
-  // New state for Claude Code-style features
-  private sessionName: string = `session-${Date.now()}`;
-  private todos: TodoItem[] = [];
-  private backgroundTasks: BackgroundTask[] = [];
   private workingDirectories: string[] = [process.cwd()];
-  private conversationHistory: Array<{ role: string; content: string; timestamp: Date }> = [];
+  private sessionName: string = `session-${Date.now()}`;
 
   // Focused handlers
   private chatHandler: ChatHandler;
@@ -94,10 +75,14 @@ export class CommandHandler {
     this.workflowHandler = new WorkflowHandler(this.themeManager, this.workflowEngine);
     this.skillHandler = new SkillHandler(this.themeManager);
 
-    void this.loadCustomCommands();
   }
 
-  private async loadCustomCommands(): Promise<void> {
+  private customCommandsLoaded = false;
+
+  private async ensureCustomCommandsLoaded(): Promise<void> {
+    if (this.customCommandsLoaded) return;
+    this.customCommandsLoaded = true;
+
     // Load global commands
     const globalCommandsPath = path.join(os.homedir(), '.canvas-cli', 'commands');
     if (await fs.pathExists(globalCommandsPath)) {
@@ -171,7 +156,7 @@ export class CommandHandler {
         return 'Screen cleared';
 
       case 'compact':
-        return await this.compactConversation(args);
+        return await this.compressContext();
 
       case 'status':
         return this.showStatus();
@@ -283,6 +268,7 @@ export class CommandHandler {
         return await this.handleTextToSpeech(args);
 
       default:
+        await this.ensureCustomCommandsLoaded();
         if (this.customCommands.has(command)) {
           return this.customCommands.get(command) || null;
         }
@@ -298,7 +284,7 @@ export class CommandHandler {
     help += `    ${this.themeManager.text('/help')}      ${this.themeManager.dim('Show this help')}\n`;
     help += `    ${this.themeManager.text('/exit')}      ${this.themeManager.dim('Exit Canvas CLI')}\n`;
     help += `    ${this.themeManager.text('/clear')}     ${this.themeManager.dim('Clear conversation')}\n`;
-    help += `    ${this.themeManager.text('/compact')}   ${this.themeManager.dim('Compact conversation')}\n`;
+    help += `    ${this.themeManager.text('/compact')}   ${this.themeManager.dim('Summarize old messages to free context')}\n`;
     help += `    ${this.themeManager.text('/model')}     ${this.themeManager.dim('Change AI model')}\n`;
     help += `    ${this.themeManager.text('/config')}    ${this.themeManager.dim('Manage configuration')}\n`;
     help += `    ${this.themeManager.text('/status')}    ${this.themeManager.dim('Show status info')}\n`;
@@ -356,38 +342,6 @@ export class CommandHandler {
     return help;
   }
 
-  private showHelpOld(): string {
-    const commands = [
-      { cmd: '/help, /?', desc: 'Show this help message' },
-      { cmd: '/config [show|set|get]', desc: 'Manage configuration' },
-      { cmd: '/agentic [plan|develop|execute]', desc: 'Canvas agentic planning & development' },
-      { cmd: '/recipe [list|run|create]', desc: 'Recipe management and execution' },
-      { cmd: '/skill [list|show|create|delete]', desc: 'Manage AI skills' },
-      { cmd: '/theme', desc: 'Change the visual theme' },
-      { cmd: '/model', desc: 'Change the AI model' },
-      { cmd: '/tools [desc]', desc: 'List available tools' },
-      { cmd: '/chat save <tag>', desc: 'Save conversation checkpoint' },
-      { cmd: '/chat resume <tag>', desc: 'Resume from checkpoint' },
-      { cmd: '/stats', desc: 'Show session statistics' },
-      { cmd: '/memory add <text>', desc: 'Add to memory' },
-      { cmd: '/workflow [list|run]', desc: 'Manage workflows' },
-      { cmd: '/quit, /exit', desc: 'Exit Canvas CLI' }
-    ];
-
-    let help = this.themeManager.primary('Canvas CLI Commands:\n\n');
-    for (const { cmd, desc } of commands) {
-      help += `  ${this.themeManager.secondary(cmd.padEnd(30))} ${this.themeManager.dim(desc)}\n`;
-    }
-
-    if (this.customCommands.size > 0) {
-      help += '\n' + this.themeManager.primary('Custom Commands:\n');
-      for (const name of this.customCommands.keys()) {
-        help += `  ${this.themeManager.secondary('/' + name)}\n`;
-      }
-    }
-
-    return help;
-  }
 
   private async changeTheme(): Promise<string> {
     const inquirer = await import('inquirer');
@@ -583,10 +537,33 @@ This file provides context and instructions for the Canvas AI assistant in this 
   }
 
   private async compressContext(): Promise<string> {
-    const recentMessages = this.messages.slice(-10);
-    this.messages.length = 0;
-    this.messages.push(...recentMessages);
-    return this.themeManager.success('Context compressed to last 10 messages');
+    if (this.messages.length < 4) {
+      return this.themeManager.warning('Not enough messages to compact');
+    }
+
+    const config = loadConfig();
+    const baseUrl = config.ollamaUrl || config.ollama?.baseUrl || 'http://localhost:11434';
+    const model = config.defaultModel || 'llama3.2:1b';
+
+    // Convert messages to the format compactHistoryIfNeeded expects
+    const { compactHistoryIfNeeded } = await import('./ollama/context-manager.js');
+    const nativeMessages = this.messages
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: String(m.content) }));
+
+    const { messages: compacted, compacted: didCompact } =
+      await compactHistoryIfNeeded(nativeMessages, baseUrl, model, true /* force */);
+
+    if (didCompact) {
+      // Replace internal messages with compacted version
+      this.messages.length = 0;
+      compacted.forEach(m => {
+        this.messages.push({ role: m.role as Message['role'], content: m.content, timestamp: new Date() });
+      });
+      return this.themeManager.success(`Context summarized (${nativeMessages.length} → ${compacted.length} messages)`);
+    }
+
+    return this.themeManager.dim('Context is already compact');
   }
 
   private async copyLastOutput(): Promise<string> {
@@ -778,24 +755,6 @@ This file provides context and instructions for the Canvas AI assistant in this 
   // Claude Code-style commands
   // ============================================================================
 
-  private async compactConversation(args: string): Promise<string> {
-    const focus = args.trim() || undefined;
-    const originalCount = this.messages.length;
-
-    // Keep system messages and last 10 exchanges
-    const systemMsgs = this.messages.filter(m => m.role === 'system');
-    const recentMsgs = this.messages.filter(m => m.role !== 'system').slice(-20);
-
-    this.messages = [...systemMsgs, ...recentMsgs];
-    const removed = originalCount - this.messages.length;
-
-    let result = this.themeManager.success(`Compacted conversation: removed ${removed} messages`);
-    if (focus) {
-      result += `\n${this.themeManager.dim(`Focus: ${focus}`)}`;
-    }
-    return result;
-  }
-
   private showStatus(): string {
     const config = loadConfig();
     const model = getCurrentModel() || config.defaultModel || 'unknown';
@@ -895,115 +854,15 @@ This file provides context and instructions for the Canvas AI assistant in this 
   }
 
   private showTodos(): string {
-    let output = this.themeManager.primary('Current TODOs\n\n');
-
-    if (this.todos.length === 0) {
-      output += `  ${this.themeManager.dim('No todos. Use /todo add <text> to create one.')}\n`;
-      return output;
-    }
-
-    const pending = this.todos.filter(t => t.status === 'pending');
-    const inProgress = this.todos.filter(t => t.status === 'in_progress');
-    const done = this.todos.filter(t => t.status === 'done');
-
-    if (inProgress.length > 0) {
-      output += this.themeManager.secondary('  In Progress\n');
-      inProgress.forEach(t => {
-        output += `    ${this.themeManager.warning('○')} ${t.text}\n`;
-      });
-      output += '\n';
-    }
-
-    if (pending.length > 0) {
-      output += this.themeManager.secondary('  Pending\n');
-      pending.forEach(t => {
-        output += `    ${this.themeManager.dim('○')} ${t.text}\n`;
-      });
-      output += '\n';
-    }
-
-    if (done.length > 0) {
-      output += this.themeManager.secondary('  Completed\n');
-      done.forEach(t => {
-        output += `    ${this.themeManager.success('●')} ${this.themeManager.dim(t.text)}\n`;
-      });
-    }
-
-    return output;
+    return this.themeManager.dim('Todos are not tracked in-session. Ask the AI to manage your task list.\n');
   }
 
-  private async manageTodos(args: string): Promise<string> {
-    const parts = args.trim().split(' ');
-    const action = parts[0];
-    const rest = parts.slice(1).join(' ');
-
-    switch (action) {
-      case 'add':
-        if (!rest) return this.themeManager.error('Usage: /todo add <text>');
-        const newTodo: TodoItem = {
-          id: `todo-${Date.now()}`,
-          text: rest,
-          status: 'pending',
-          created: new Date()
-        };
-        this.todos.push(newTodo);
-        return this.themeManager.success(`Added: ${rest}`);
-
-      case 'done':
-      case 'complete':
-        const doneIndex = parseInt(rest) - 1;
-        if (isNaN(doneIndex) || doneIndex < 0 || doneIndex >= this.todos.length) {
-          return this.themeManager.error('Usage: /todo done <number>');
-        }
-        this.todos[doneIndex].status = 'done';
-        return this.themeManager.success(`Completed: ${this.todos[doneIndex].text}`);
-
-      case 'start':
-        const startIndex = parseInt(rest) - 1;
-        if (isNaN(startIndex) || startIndex < 0 || startIndex >= this.todos.length) {
-          return this.themeManager.error('Usage: /todo start <number>');
-        }
-        this.todos[startIndex].status = 'in_progress';
-        return this.themeManager.success(`Started: ${this.todos[startIndex].text}`);
-
-      case 'remove':
-      case 'rm':
-        const rmIndex = parseInt(rest) - 1;
-        if (isNaN(rmIndex) || rmIndex < 0 || rmIndex >= this.todos.length) {
-          return this.themeManager.error('Usage: /todo remove <number>');
-        }
-        const removed = this.todos.splice(rmIndex, 1)[0];
-        return this.themeManager.success(`Removed: ${removed.text}`);
-
-      case 'clear':
-        const count = this.todos.length;
-        this.todos = [];
-        return this.themeManager.success(`Cleared ${count} todos`);
-
-      case 'list':
-      default:
-        return this.showTodos();
-    }
+  private async manageTodos(_args: string): Promise<string> {
+    return this.themeManager.dim('Todos are not tracked in-session. Ask the AI to manage your task list.\n');
   }
 
   private showBashes(): string {
-    let output = this.themeManager.primary('Background Tasks\n\n');
-
-    if (this.backgroundTasks.length === 0) {
-      output += `  ${this.themeManager.dim('No background tasks running')}\n`;
-      return output;
-    }
-
-    this.backgroundTasks.forEach((task, i) => {
-      const duration = Math.round((Date.now() - task.startTime.getTime()) / 1000);
-      const statusIcon = task.status === 'running' ? this.themeManager.warning('●') :
-                        task.status === 'completed' ? this.themeManager.success('●') :
-                        this.themeManager.error('●');
-      output += `  ${statusIcon} [${i + 1}] ${task.command}\n`;
-      output += `      ${this.themeManager.dim(`${task.status} · ${duration}s · PID: ${task.pid || 'N/A'}`)}\n`;
-    });
-
-    return output;
+    return this.themeManager.dim('No background tasks running.\n');
   }
 
   private async renameSession(args: string): Promise<string> {

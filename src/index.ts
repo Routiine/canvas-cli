@@ -12,7 +12,6 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { loadConfig, saveConfig } from './config.js';
 import { getModelManager } from './models/model-manager.js';
-import { initializeCanvasFeatures, CanvasFeatures, type FeatureManager } from './features/index.js';
 import { initializeSkillSystem } from './skills/skillSystem.js';
 
 // Polished UI
@@ -47,6 +46,7 @@ import {
 import { registerInkUICommand } from './commands/ink-ui.js';
 import { createInstallCommand } from './commands/install.js';
 import { createUpdateCommand } from './commands/update.js';
+import { createShellCommand } from './commands/shell-command.js';
 
 // Import feature commands
 import { createFeatureCommands } from './commands/feature-commands.js';
@@ -61,6 +61,9 @@ import { createMCPCommand } from './mcp/mcp-manager.js';
 // Headless mode
 import { registerHeadlessCommands, executeHeadless } from './modes/headless.js';
 
+// Athena AI
+import { registerAthenaCommands } from './athena/commands/athena-command.js';
+
 // Plugin system
 import { loadPlugins, registerPluginCommands, listPlugins } from './plugins/plugin-loader.js';
 
@@ -69,94 +72,182 @@ const _require = createRequire(import.meta.url);
 const pkg = _require('../package.json');
 const VERSION: string = pkg.version;
 
+// Recommended Ollama models for agentic work — shown during setup
+const RECOMMENDED_OLLAMA_MODELS = [
+  { name: 'qwen2.5:14b        ★ Best for agents  — tool calling, planning, code (14B)', value: 'qwen2.5:14b' },
+  { name: 'mistral-nemo:12b   ★ Recommended      — fast, strong reasoning (12B)',       value: 'mistral-nemo:12b' },
+  { name: 'llama3.1:8b        ★ Recommended      — reliable tool-use, low RAM (8B)',    value: 'llama3.1:8b' },
+  { name: 'qwen2.5:7b            Lightweight      — good quality, minimal resources (7B)', value: 'qwen2.5:7b' },
+  { name: 'llama3.2:3b            Smallest       — fastest, basic tasks only (3B)',       value: 'llama3.2:3b' },
+  { name: '[ Enter model name manually ]', value: '__manual__' },
+];
+
+async function fetchLocalOllamaModels(baseUrl: string): Promise<string[]> {
+  try {
+    const res = await fetch(`${baseUrl}/api/tags`);
+    if (!res.ok) return [];
+    const data = await res.json() as { models?: { name: string }[] };
+    return (data.models || []).map((m: { name: string }) => m.name);
+  } catch {
+    return [];
+  }
+}
+
 async function setupInitialConfig(): Promise<boolean> {
   const config = loadConfig();
-  const needsConfig = !config.ollamaUrl && !config.ollama?.baseUrl;
 
-  if (!needsConfig) {
+  // Only skip if already configured AND not a first-run scenario
+  const hasAnyProvider = !!(
+    config.ollamaUrl || config.ollama?.baseUrl ||
+    process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY ||
+    process.env.GROQ_API_KEY || config.groqApiKey
+  );
+  const isFirstRun = !config.setupComplete;
+
+  if (hasAnyProvider && !isFirstRun) {
     return false;
   }
 
   welcome.standard(VERSION);
-  console.log(fmt.info('No configuration found. Let\'s set up Canvas CLI.'));
-  console.log(uiTheme.dim('You can also run "canvas config" anytime to configure.\n'));
+
+  if (hasAnyProvider) {
+    console.log(fmt.info('Canvas CLI is configured. You can update providers below.'));
+  } else {
+    console.log(fmt.info('No configuration found. Let\'s set up Canvas CLI.'));
+  }
+  console.log(uiTheme.dim('Canvas works with Ollama (local), Groq (fast cloud), Claude, or OpenAI.\n'));
 
   const inquirer = await import('inquirer');
-  const { setupNow } = await inquirer.default.prompt([
-    {
-      type: 'confirm',
-      name: 'setupNow',
-      message: 'Would you like to configure Canvas CLI now?',
-      default: true
-    }
-  ]);
+  const { setupNow } = await inquirer.default.prompt([{
+    type: 'confirm', name: 'setupNow',
+    message: 'Would you like to configure Canvas CLI now?', default: true
+  }]);
 
-  if (setupNow) {
-    const { ollamaUrl } = await inquirer.default.prompt([
-      {
-        type: 'input',
-        name: 'ollamaUrl',
-        message: 'Enter Ollama API URL:',
-        default: 'http://localhost:11434',
-        validate: (input: string) => {
-          try {
-            new URL(input);
-            return true;
-          } catch {
-            return 'Please enter a valid URL';
-          }
-        }
-      }
-    ]);
-
-    const newConfig = {
-      ...config,
-      ollamaUrl: ollamaUrl,
-      ollama: {
-        baseUrl: ollamaUrl,
-        defaultModel: 'llama3.2:latest'
-      }
-    };
-    saveConfig(newConfig);
-    console.log(fmt.success('Basic configuration saved! Use /config to add more settings.'));
-    console.log('');
-    return true;
+  if (!setupNow) {
+    console.log(uiTheme.dim('Skipped. Run "canvas config" to configure at any time.\n'));
+    saveConfig({ ...config, setupComplete: true });
+    return false;
   }
 
-  console.log(fmt.warning('No configuration set. Canvas CLI may not work properly.'));
-  console.log(uiTheme.dim('Run /config to configure at any time.\n'));
-  return false;
+  const { provider } = await inquirer.default.prompt([{
+    type: 'list', name: 'provider',
+    message: 'Choose your primary AI provider:',
+    choices: [
+      { name: 'Ollama (local, free, private)                  — best for agents', value: 'ollama' },
+      { name: 'Groq  (cloud, fast inference, free tier)       — great for testing', value: 'groq' },
+      { name: 'Claude by Anthropic (claude-sonnet-4-6)        — top quality', value: 'anthropic' },
+      { name: 'OpenAI (GPT-4o)                                — widely supported', value: 'openai' },
+      { name: 'Skip for now', value: 'skip' },
+    ]
+  }]);
+
+  if (provider === 'skip') {
+    console.log(uiTheme.dim('Skipped. Run "canvas config" to configure at any time.\n'));
+    saveConfig({ ...config, setupComplete: true });
+    return false;
+  }
+
+  let newConfig = { ...config };
+
+  if (provider === 'ollama') {
+    const { ollamaUrl } = await inquirer.default.prompt([{
+      type: 'input', name: 'ollamaUrl', message: 'Ollama URL:',
+      default: config.ollamaUrl || config.ollama?.baseUrl || 'http://localhost:11434',
+      validate: (input: string) => {
+        try { new URL(input); return true; } catch { return 'Please enter a valid URL'; }
+      }
+    }]);
+
+    // Fetch locally installed models to mark which are already pulled
+    console.log(uiTheme.dim('  Checking locally available models...'));
+    const localModels = await fetchLocalOllamaModels(ollamaUrl);
+    const modelChoices = RECOMMENDED_OLLAMA_MODELS.map(m => {
+      if (m.value === '__manual__') return m;
+      const installed = localModels.includes(m.value) ? ' [installed]' : '';
+      return { ...m, name: m.name + installed };
+    });
+
+    const { selectedModel } = await inquirer.default.prompt([{
+      type: 'list', name: 'selectedModel',
+      message: 'Choose your default model (★ = recommended for agentic tasks):',
+      choices: modelChoices,
+      default: localModels.includes('qwen2.5:14b') ? 'qwen2.5:14b'
+        : localModels.includes('mistral-nemo:12b') ? 'mistral-nemo:12b'
+        : localModels.includes('llama3.1:8b') ? 'llama3.1:8b'
+        : modelChoices[0].value,
+    }]);
+
+    let defaultModel = selectedModel;
+    if (selectedModel === '__manual__') {
+      const { manualModel } = await inquirer.default.prompt([{
+        type: 'input', name: 'manualModel', message: 'Enter model name (e.g. llama3.2:latest):',
+        validate: (v: string) => v.trim().length > 0 ? true : 'Model name required'
+      }]);
+      defaultModel = manualModel.trim();
+    }
+
+    if (!localModels.includes(defaultModel) && defaultModel !== '__manual__') {
+      console.log(uiTheme.dim(`  Model "${defaultModel}" not found locally. Pull it with: ollama pull ${defaultModel}`));
+    }
+
+    newConfig = { ...newConfig, ollamaUrl, defaultModel, ollama: { baseUrl: ollamaUrl, defaultModel, timeout: 120000, maxRetries: 3 } };
+
+  } else if (provider === 'groq') {
+    // Only use an existing key as the default if it actually looks like a Groq key.
+    // Guards against PATH or other env vars accidentally being used as the default.
+    const envKey    = process.env.GROQ_API_KEY ?? '';
+    const savedKey  = config.groqApiKey ?? '';
+    const validKey  = (k: string) => k.startsWith('gsk_') && k.length > 20;
+    const existingKey = validKey(envKey) ? envKey : validKey(savedKey) ? savedKey : '';
+    const { apiKey } = await inquirer.default.prompt([{
+      type: 'password', name: 'apiKey',
+      message: 'Groq API key (gsk_...):',
+      default: existingKey,
+      validate: (input: string) => input.trim().startsWith('gsk_') ? true : 'Key should start with gsk_'
+    }]);
+    const key = apiKey.trim();
+    newConfig = { ...newConfig, groqApiKey: key };
+    process.env.GROQ_API_KEY = key;
+    console.log(uiTheme.dim('  Default model: llama-3.3-70b-versatile (best for agentic tasks on Groq)'));
+
+  } else if (provider === 'anthropic') {
+    const { apiKey } = await inquirer.default.prompt([{
+      type: 'password', name: 'apiKey', message: 'Anthropic API key (sk-ant-...):',
+      validate: (input: string) => input.startsWith('sk-') ? true : 'Key should start with sk-'
+    }]);
+    newConfig = { ...newConfig, anthropicApiKey: apiKey };
+    process.env.ANTHROPIC_API_KEY = apiKey;
+
+  } else if (provider === 'openai') {
+    const { apiKey } = await inquirer.default.prompt([{
+      type: 'password', name: 'apiKey', message: 'OpenAI API key (sk-...):',
+      validate: (input: string) => input.startsWith('sk-') ? true : 'Key should start with sk-'
+    }]);
+    newConfig = { ...newConfig, openaiApiKey: apiKey };
+    process.env.OPENAI_API_KEY = apiKey;
+  }
+
+  saveConfig({ ...newConfig, setupComplete: true });
+  console.log(fmt.success('Configuration saved.'));
+  console.log(uiTheme.dim('Run "canvas config" anytime to add more providers or change settings.\n'));
+  return true;
 }
 
-async function initializeSystems(): Promise<FeatureManager | null> {
+async function initializeSystems(): Promise<void> {
   const config = loadConfig();
 
-  // Register default model
+  // Register default model alias
   const defaultModel = config.defaultModel || config.ollama?.defaultModel;
   if (defaultModel) {
     getModelManager().registerDefaultAliasFromConfig(defaultModel);
   }
 
-  // Initialize features (optional)
-  let featureManager = null;
-  const initSpinner = spinner(`Initializing Canvas CLI v${VERSION}`);
-  initSpinner.start();
-
-  try {
-    featureManager = await initializeCanvasFeatures();
-    initSpinner.succeed('Canvas CLI initialized');
-  } catch (error) {
-    initSpinner.warn('Initialized with limited features');
-  }
-
-  // Initialize skills (optional)
+  // Initialize skills (optional — non-fatal)
   try {
     await initializeSkillSystem();
-  } catch (error) {
+  } catch {
     // Skills are optional
   }
-
-  return featureManager;
 }
 
 function registerCoreCommands(program: Command, config: ReturnType<typeof loadConfig>): void {
@@ -247,6 +338,9 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
 
   // canvas review-pr <number> — AI code review posted to GitHub
   program.addCommand(createReviewPRCommand());
+
+  // canvas shell "describe it" — natural language to shell command
+  program.addCommand(createShellCommand());
 
   // canvas ask <query> — semantic search over codebase
   program
@@ -436,6 +530,34 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
       console.log(`Disabled: ${name}`);
     });
 
+  skillsCmd
+    .command('export')
+    .description('Export skills to another tool format')
+    .option('-f, --format <format>', 'Target format: claude-code, opencode, gemini-cli', 'claude-code')
+    .option('-o, --out <dir>', 'Output directory', './skills-export')
+    .action(async (opts: { format: string; out: string }) => {
+      const { getSkillRegistry } = await import('./skills/skill-registry.js');
+      const fs = await import('fs-extra');
+      const path = await import('path');
+      const registry = getSkillRegistry();
+      const skills = registry.getEnabled();
+      if (skills.length === 0) { console.log('No enabled skills to export.'); return; }
+      await fs.default.ensureDir(opts.out);
+      for (const skill of skills) {
+        const content = await fs.default.readFile(skill.filePath, 'utf8').catch(() => null);
+        if (!content) continue;
+        const fname = opts.format === 'opencode'
+          ? `${skill.name}.skill.md`
+          : `${skill.name}.md`;
+        await fs.default.writeFile(path.default.join(opts.out, fname), content);
+        console.log(`  exported: ${skill.name}`);
+      }
+      console.log(chalk.green(`\nExported ${skills.length} skill(s) to ${opts.out}/`));
+      if (opts.format === 'claude-code') {
+        console.log(chalk.dim('  Copy to ~/.claude/commands/ to use in Claude Code'));
+      }
+    });
+
   // Audit log (canvas audit show)
   program
     .command('audit')
@@ -477,11 +599,66 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
     .option('--root <dir>', 'Root directory to watch', process.cwd())
     .action(async (opts: { root: string }) => {
       const { WatchMode } = await import('./modes/watch-mode.js');
+      const { generateChatResponseWithHistory } = await import('./ollama/response-generator.js');
+      const fsExtra = await import('fs-extra');
+
       const watcher = new WatchMode({ root: opts.root });
-      watcher.on('trigger', (trigger) => {
-        console.log(`  [${trigger.type}] ${trigger.filePath}:${trigger.line} — ${trigger.comment}`);
+      const config = loadConfig();
+      const model = config.defaultModel || config.model || 'llama3.2:1b';
+
+      watcher.on('trigger', async (trigger: { type: string; filePath: string; line: number; comment: string }) => {
+        try {
+          const content = await fsExtra.default.readFile(trigger.filePath, 'utf8');
+          const lines = content.split('\n');
+
+          // Build a context window of ~30 lines around the trigger
+          const ctxStart = Math.max(0, trigger.line - 15);
+          const ctxEnd = Math.min(lines.length, trigger.line + 15);
+          const context = lines.slice(ctxStart, ctxEnd).join('\n');
+
+          if (trigger.type === 'question') {
+            console.log(chalk.yellow(`\n  ? ${trigger.filePath}:${trigger.line} — ${trigger.comment}`));
+            const answer = await generateChatResponseWithHistory(
+              `In this code:\n\`\`\`\n${context}\n\`\`\`\n\nAnswer this question: ${trigger.comment}`,
+              model,
+              []
+            );
+            console.log(chalk.cyan(answer));
+          } else {
+            // edit — ask the AI to implement the instruction and rewrite the section
+            console.log(chalk.yellow(`\n  ✎ ${trigger.filePath}:${trigger.line} — ${trigger.comment}`));
+            const editPrompt =
+              `You are editing source code. The following is the relevant code section (lines ${ctxStart + 1}–${ctxEnd}):\n\n` +
+              `\`\`\`\n${context}\n\`\`\`\n\n` +
+              `Instruction on line ${trigger.line}: ${trigger.comment || '(no comment — infer from context)'}\n\n` +
+              `Respond with ONLY the corrected code for this section. Remove the "// AI!" comment. No explanations.`;
+
+            const aiResponse = await generateChatResponseWithHistory(editPrompt, model, []);
+
+            // Strip markdown fences if the model wrapped the output
+            const edited = aiResponse
+              .replace(/^```[\w]*\n/, '')
+              .replace(/\n```$/, '')
+              .trimEnd();
+
+            // Splice the edited section back into the file
+            const newContent = [
+              lines.slice(0, ctxStart).join('\n'),
+              edited,
+              lines.slice(ctxEnd).join('\n'),
+            ].filter((s) => s.length > 0).join('\n');
+
+            await fsExtra.default.writeFile(trigger.filePath, newContent, 'utf8');
+            console.log(chalk.green(`  ✓ Applied AI edit to ${trigger.filePath}:${trigger.line}`));
+          }
+        } catch (err: unknown) {
+          console.error(chalk.red(`  ✗ watch action failed: ${err instanceof Error ? err.message : String(err)}`));
+        }
       });
+
       console.log(`Watching for AI comments in ${opts.root}...`);
+      console.log('  // AI! <instruction>  — apply edit in-place');
+      console.log('  // AI? <question>     — print AI answer\n');
       console.log('Press Ctrl+C to stop.\n');
       await watcher.start();
     });
@@ -609,117 +786,9 @@ function registerCoreCommands(program: Command, config: ReturnType<typeof loadCo
   });
 }
 
-function registerFeatureCommands(program: Command, featureManager: FeatureManager | null): void {
-  if (!featureManager) return;
-
-  program
-    .command('palette')
-    .description('Open smart command palette (Ctrl+P)')
-    .action(async () => {
-      const palette = CanvasFeatures.getProductivity()!.commandPalette;
-      await palette.open();
-    });
-
-  program
-    .command('notebook')
-    .description('Manage interactive notebooks')
-    .argument('[action]', 'Action: create, open, list, execute')
-    .argument('[name]', 'Notebook name')
-    .action(async (action?: string, name?: string) => {
-      const notebooks = CanvasFeatures.getProductivity()!.notebooks;
-      if (action === 'create' && name) {
-        const nb = notebooks.createNotebook(name);
-        console.log(uiTheme.dim(`Created notebook: ${nb.name}`));
-      } else if (action === 'list') {
-        const list = notebooks.listNotebooks();
-        list.forEach((nb: { name: string; modified: Date | string }) => console.log(`- ${nb.name} (${nb.modified})`));
-      } else {
-        console.log('Usage: canvas notebook <create|open|list|execute> [name]');
-      }
-    });
-
-  program
-    .command('share')
-    .description('Start live session sharing')
-    .option('-n, --name <name>', 'Session name', 'Canvas Session')
-    .action(async (options: { name: string }) => {
-      const sharing = CanvasFeatures.getCollaboration()!.sessionSharing;
-      const session = await sharing.startSharing(options.name);
-      console.log(uiTheme.info(`Session ID: ${session.id}`));
-    });
-
-  program
-    .command('voice')
-    .description('Control voice commands')
-    .argument('[action]', 'Action: start, stop, train')
-    .action(async (action?: string) => {
-      const voice = CanvasFeatures.getInterfaces()!.voiceCommand;
-      if (action === 'start') await voice.startListening();
-      else if (action === 'stop') await voice.stopListening();
-      else console.log('Usage: canvas voice <start|stop|train>');
-    });
-
-  program
-    .command('monitor')
-    .description('Open performance monitoring dashboard')
-    .action(async () => {
-      const monitor = CanvasFeatures.getSecurity()!.performanceMonitor;
-      await monitor.start();
-      console.log(uiTheme.success('Performance monitoring started'));
-    });
-
-  program
-    .command('incident')
-    .description('Manage incident response mode')
-    .argument('[action]', 'Action: activate, deactivate, status')
-    .action(async (action?: string) => {
-      const incident = CanvasFeatures.getSecurity()!.incidentResponse;
-      if (action === 'activate') incident.activate();
-      else if (action === 'deactivate') incident.deactivate();
-      else if (action === 'status') console.log(uiTheme.info('Incident response mode status checked'));
-      else console.log('Usage: canvas incident <activate|deactivate|status>');
-    });
-
-  program
-    .command('workspace')
-    .description('Manage persistent workspace state')
-    .argument('[action]', 'Action: save, restore, list')
-    .action(async (action?: string) => {
-      const workspace = CanvasFeatures.getProductivity()!.workspaceState;
-      if (action === 'save') {
-        const ws = await workspace.createWorkspace('current');
-        console.log(uiTheme.success(`Workspace saved: ${ws.id}`));
-      } else if (action === 'restore') {
-        const list = await workspace.listWorkspaces();
-        if (list.length > 0) {
-          await workspace.loadWorkspace(list[0].id);
-          console.log(uiTheme.success('Workspace restored'));
-        }
-      } else if (action === 'list') {
-        const list = await workspace.listWorkspaces();
-        list.forEach((ws: { name: string }) => console.log(`- ${ws.name}`));
-      } else {
-        console.log('Usage: canvas workspace <save|restore|list>');
-      }
-    });
-
-  program
-    .command('knowledge')
-    .description('Access team knowledge base')
-    .argument('[action]', 'Action: search, add, list')
-    .argument('[query]', 'Search query or content')
-    .action(async (action?: string, query?: string) => {
-      const kb = CanvasFeatures.getCollaboration()!.knowledgeBase;
-      if (action === 'search' && query) {
-        const results = await kb.search({ text: query, limit: 10 });
-        results.forEach((r: { item?: { title?: string } }) => console.log(`- ${r.item?.title || 'Result'}`));
-      } else if (action === 'list') {
-        console.log('Knowledge base collections listed');
-      } else {
-        console.log('Usage: canvas knowledge <search|add|list> [query]');
-      }
-    });
-}
+// registerFeatureCommands removed: palette, notebook, share, voice, monitor, incident,
+// workspace, and knowledge commands were stubs that required featureManager which is
+// null on fresh install and provided no real functionality.
 
 async function main(): Promise<void> {
   // Fast path: skip heavy initialization for --help and --version
@@ -730,21 +799,33 @@ async function main(): Promise<void> {
       .name('canvas')
       .description('Canvas CLI - Production-ready AI assistant with advanced tools (defaults to chat mode)')
       .version(VERSION);
-    // Register minimal command stubs for help output
+    // Register all command stubs for help output
     program.command('chat').description('Start interactive AI chat (default)');
+    program.command('shell').description('Natural language to shell command');
+    program.command('ask').description('Semantic codebase search');
+    program.command('edit').description('AI-powered file editing with diff review');
+    program.command('undo').description('Restore file from pre-edit snapshot');
+    program.command('test').description('Generate and run tests for a file');
+    program.command('review-pr').description('AI code review for pull requests');
     program.command('models').description('List and manage AI models');
     program.command('config').description('Configure Canvas CLI settings interactively');
     program.command('init').description('Initialize Canvas CLI in current project');
     program.command('agent').description('Run autonomous AI agents');
     program.command('tools').description('List and manage available tools');
-    program.command('edit').description('AI-powered file editing with diff review');
-    program.command('test').description('Generate and run tests');
-    program.command('review-pr').description('AI code review for pull requests');
     program.command('memory').description('Manage persistent memory');
     program.command('index').description('Build and query codebase index');
-    program.command('daemon').description('Background analysis daemon');
-    program.command('finetune').description('Fine-tuning pipeline');
+    program.command('daemon').description('Background analysis daemon (commit-watcher, perf monitor)');
     program.command('mcp').description('MCP server management');
+    program.command('skills').description('Skill system management (list, install, enable, disable)');
+    program.command('watch').description('Watch files for AI comment triggers (// AI!)');
+    program.command('audit').description('Show audit log of all canvas operations');
+    program.command('plugins').description('List installed plugins');
+    program.command('recipe').description('Recipe marketplace (browse, install, run)');
+    program.command('finetune').description('Fine-tuning data pipeline');
+    program.command('leaderboard').description('Model performance leaderboard');
+    program.command('ab').description('A/B testing framework for models and prompts');
+    program.command('pr').description('Link and manage pull requests');
+    program.command('completion').description('Generate shell completion scripts (bash, zsh, fish)');
     await program.parseAsync();
     return;
   }
@@ -754,7 +835,7 @@ async function main(): Promise<void> {
 
   // Load config and initialize systems
   const config = loadConfig();
-  const featureManager = await initializeSystems();
+  await initializeSystems();
 
   // Create program
   const program = new Command();
@@ -772,7 +853,6 @@ async function main(): Promise<void> {
 
   // Register all commands
   registerCoreCommands(program, config);
-  registerFeatureCommands(program, featureManager);
   registerBuiltinCommands(program);
 
   // Headless mode flags (-p, --headless, --auto-approve, --output-format, etc.)
@@ -782,16 +862,24 @@ async function main(): Promise<void> {
   await loadPlugins();
   registerPluginCommands(program);
 
+  // Athena AI commands
+  registerAthenaCommands(program);
+
   // Priority 3: Load session memory context at startup (non-blocking)
   import('./memory/session-bridge.js').then(({ SessionBridge }) => {
     const bridge = new SessionBridge('canvas-main', process.cwd());
     bridge.loadContext().then((ctx) => {
       if (ctx.systemPromptAddition) {
-        // Context is available for agents to use via SessionBridge
         process.env.CANVAS_SESSION_CONTEXT = ctx.systemPromptAddition.slice(0, 2000);
       }
-    }).catch(() => { /* Non-critical */ });
-  }).catch(() => { /* Non-critical */ });
+    }).catch((e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.debug(`[session-bridge] context load failed: ${msg}`);
+    });
+  }).catch((e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.debug(`[session-bridge] module load failed: ${msg}`);
+  });
 
   // Handle -p/--prompt flag for headless execution
   const promptIdx = process.argv.indexOf('-p');
