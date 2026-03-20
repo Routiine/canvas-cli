@@ -105,10 +105,10 @@ export class ContextManager {
     let recommendedAction: ContextAnalysis['recommendedAction'] = 'continue';
     if (exceedsLimit) {
       recommendedAction = 'trim';
-    } else if (utilizationPercent > 90) {
-      recommendedAction = 'summarize';
     } else if (utilizationPercent > 95) {
       recommendedAction = 'split';
+    } else if (utilizationPercent > 90) {
+      recommendedAction = 'summarize';
     }
 
     return {
@@ -285,11 +285,47 @@ export class ContextManager {
     options: ContextCompressionOptions
   ): Promise<ContextTrimResult> {
     const messages = [...contextWindow.messages];
-    
-    // For now, fall back to dropping oldest
-    // In a full implementation, this would use the AI model to summarize
-    console.warn('Message summarization not yet implemented, falling back to drop_oldest');
-    return this.dropOldestMessages(contextWindow, targetTokens, options);
+    const preserved = messages.slice(-options.preserveRecent);
+    const toSummarize = messages.slice(0, messages.length - options.preserveRecent);
+
+    if (toSummarize.length === 0) {
+      return this.dropOldestMessages(contextWindow, targetTokens, options);
+    }
+
+    try {
+      const { getUnifiedProvider } = await import('../intelligence/unified-provider.js');
+      const provider = getUnifiedProvider();
+      if (!provider) throw new Error('no provider');
+
+      const transcript = toSummarize
+        .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+        .join('\n\n');
+
+      const summaryText = await provider.complete([
+        {
+          role: 'user' as const,
+          content: `Summarize the following conversation history into a concise paragraph that preserves all important context, decisions, and facts. Be specific about any code, files, or technical details.\n\n${transcript}`
+        }
+      ], { temperature: 0.2 });
+
+      const summaryMessage: Message = {
+        role: 'assistant',
+        content: `[Summary of earlier conversation: ${summaryText}]`,
+        timestamp: new Date(),
+        tokens: this.tokenizer.countTokens(summaryText) + 20
+      };
+
+      const tokensSaved = toSummarize.reduce((sum, m) => sum + (m.tokens || this.tokenizer.countTokens(m.content) + 4), 0);
+
+      return {
+        trimmedMessages: [summaryMessage, ...preserved],
+        removedMessages: toSummarize,
+        tokensSaved,
+        strategy: 'summarize'
+      };
+    } catch {
+      return this.dropOldestMessages(contextWindow, targetTokens, options);
+    }
   }
 
   /**

@@ -1089,13 +1089,50 @@ export class WebInterface extends EventEmitter {
   }
 
   private handleFilesRequest(req: IncomingMessage, res: ServerResponse): void {
-    // File management endpoint - simplified
-    this.sendJson(res, { message: 'File operations not implemented in basic version' });
+    import('fs').then(async (fsModule) => {
+      const fsPromises = fsModule.promises;
+      try {
+        const cwd = process.cwd();
+        const entries = await fsPromises.readdir(cwd, { withFileTypes: true });
+        const files = await Promise.all(entries.map(async (entry) => {
+          const fullPath = `${cwd}/${entry.name}`;
+          let size = 0;
+          let modified = '';
+          try {
+            const stat = await fsPromises.stat(fullPath);
+            size = stat.size;
+            modified = stat.mtime.toISOString();
+          } catch { /* skip */ }
+          return { name: entry.name, type: entry.isDirectory() ? 'directory' : 'file', size, modified };
+        }));
+        this.sendJson(res, { path: cwd, files });
+      } catch (err: any) {
+        this.serveError(res, 500, err.message);
+      }
+    }).catch((err: any) => this.serveError(res, 500, err.message));
   }
 
   private handleFileRequest(req: IncomingMessage, res: ServerResponse): void {
-    // File serving endpoint - simplified
-    this.serve404(res);
+    import('fs').then(async (fsModule) => {
+      const fsPromises = fsModule.promises;
+      try {
+        const url = new URL(req.url || '/', `http://localhost`);
+        const filePath = url.searchParams.get('path');
+        if (!filePath) { this.serve404(res); return; }
+
+        // Prevent path traversal — restrict to CWD
+        const cwd = process.cwd();
+        const resolved = require('path').resolve(filePath);
+        if (!resolved.startsWith(cwd)) { this.serveError(res, 403, 'Forbidden'); return; }
+
+        const content = await fsPromises.readFile(resolved, 'utf-8');
+        const stat = await fsPromises.stat(resolved);
+        this.sendJson(res, { path: resolved, content, size: stat.size, modified: stat.mtime.toISOString() });
+      } catch (err: any) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') this.serve404(res);
+        else this.serveError(res, 500, err.message);
+      }
+    }).catch((err: any) => this.serveError(res, 500, err.message));
   }
 
   private sendJson(res: ServerResponse, data: any, statusCode: number = 200): void {

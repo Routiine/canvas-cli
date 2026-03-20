@@ -96,7 +96,7 @@ export class WatchMode extends EventEmitter {
 
     const timer = setTimeout(() => {
       this.debounceTimers.delete(filePath);
-      this.scanFile(filePath);
+      void this.scanFile(filePath);
     }, this.config.debounceMs);
 
     this.debounceTimers.set(filePath, timer);

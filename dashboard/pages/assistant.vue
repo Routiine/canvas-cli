@@ -214,6 +214,9 @@ const store = useDashboardStore()
 const toast = useToast()
 const { $socket } = useNuxtApp()
 
+// Local session ID (store has no userId field — use a stable per-tab ID)
+const sessionId = crypto.randomUUID()
+
 // State
 const avatarRef = ref()
 const isFullscreen = ref(false)
@@ -318,8 +321,8 @@ const sendMessage = async () => {
   isProcessing.value = true
   
   try {
-    // Send message to backend API
-    const { data } = await $fetch('/api/assistant/chat', {
+    // $fetch in Nuxt returns the parsed body directly — not wrapped in { data }
+    const result = await $fetch<{ success: boolean; response: { content: string; emotion: string; tools?: string[]; timestamp: string }; error?: string }>('/api/assistant/chat', {
       method: 'POST',
       body: {
         message,
@@ -332,45 +335,46 @@ const sendMessage = async () => {
         model: currentModel.value
       }
     })
-    
-    if (data.success) {
+
+    if (result.success) {
       const aiResponse = {
         role: 'assistant',
-        content: data.response.content,
-        timestamp: new Date(data.response.timestamp),
-        tools: data.response.tools
+        content: result.response.content,
+        timestamp: new Date(result.response.timestamp),
+        tools: result.response.tools
       }
-      
+
       chatHistory.value.push(aiResponse)
-      
+
       // Update avatar emotion
       if (avatarRef.value) {
-        avatarRef.value.setEmotion(data.response.emotion)
-        avatarRef.value.speak(data.response.content)
+        avatarRef.value.setEmotion(result.response.emotion)
+        avatarRef.value.speak(result.response.content)
       }
-      
+
       // Emit WebSocket event for real-time updates
       if ($socket) {
         $socket.emit('assistant:message', {
           message: aiResponse,
-          emotion: data.response.emotion
+          emotion: result.response.emotion
         })
       }
     } else {
-      throw new Error(data.error || 'Failed to get response')
+      throw new Error(result.error ?? 'Failed to get response')
     }
-  } catch (error) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
     toast.add({
       title: 'Error sending message',
-      description: error.message,
+      description: message,
       color: 'red',
       icon: 'i-heroicons-exclamation-triangle'
     })
-    
+
     // Show error in chat
     chatHistory.value.push({
       role: 'system',
-      content: `Error: ${error.message}`,
+      content: `Error: ${message}`,
       timestamp: new Date()
     })
   } finally {
@@ -458,7 +462,7 @@ onMounted(() => {
   if ($socket) {
     // Listen for real-time updates from other clients
     $socket.on('assistant:broadcast', (data) => {
-      if (data.userId !== store.userId) {
+      if (data.userId !== sessionId) {
         chatHistory.value.push(data.message)
       }
     })

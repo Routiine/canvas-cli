@@ -26,8 +26,9 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
   runtimeConfig: {
     public: {
-      apiBase: process.env.API_BASE || 'http://localhost:3001',
-      socketUrl: process.env.SOCKET_URL || 'http://localhost:3001'
+      // Empty string means "same origin" — override via env var for separate deployments
+      apiBase: process.env.API_BASE || '',
+      socketUrl: process.env.SOCKET_URL || ''
     }
   }
 })

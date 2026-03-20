@@ -39,6 +39,7 @@ import type {
   ProgressCallback,
   CancellationToken
 } from './types.js';
+import { runAutonomousGraph } from './state-graph.js';
 import {
   TaskType,
   ExecutionStatus,
@@ -175,6 +176,44 @@ export class AutonomousOrchestrator extends EventEmitter {
     if (!this.initialized) {
       await this.initialize();
     }
+
+    // ── LangGraph path ────────────────────────────────────────────────────────
+    // Opt in via AutonomousConfig.useLangGraph or env var CANVAS_USE_LANGGRAPH=1.
+    // When active, the task runs as a checkpointed LangGraph state machine with
+    // built-in human-in-the-loop interrupt support and resumable execution.
+    const useLangGraph =
+      (this.config as AutonomousConfig & { useLangGraph?: boolean }).useLangGraph === true ||
+      process.env.CANVAS_USE_LANGGRAPH === '1';
+
+    if (useLangGraph) {
+      const threadId = uuidv4();
+      const output = await runAutonomousGraph({
+        goal,
+        threadId,
+        onProgress: (step, state) => {
+          const progressMap: Record<string, number> = {
+            plan_node: 0.1,
+            execute_node: 0.5,
+            verify_node: 0.7,
+            human_review_node: 0.75,
+            summarize_node: 0.95,
+          };
+          onProgress?.(progressMap[step] ?? 0.5, `[LangGraph] ${step}`);
+          void state; // state available for callers that extend onProgress
+        },
+      });
+
+      const interrupted = output.startsWith('INTERRUPTED:');
+      return {
+        success: !interrupted,
+        output,
+        filesModified: [],
+        commandsExecuted: [],
+        errors: [],
+        metrics: this.createEmptyMetrics(),
+      };
+    }
+    // ── end LangGraph path ────────────────────────────────────────────────────
 
     const taskId = uuidv4();
     const startTime = new Date();

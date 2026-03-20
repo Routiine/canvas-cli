@@ -4,11 +4,18 @@
 
 import fs from 'fs-extra';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import * as yaml from 'js-yaml';
 import nunjucks from 'nunjucks';
 import * as os from 'os';
 import { glob } from 'glob';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 import inquirer from 'inquirer';
+import { generateChatResponseWithHistory } from '../ollama/response-generator.js';
+import { loadConfig } from '../config.js';
 
 import type {
   Recipe,
@@ -113,7 +120,10 @@ export class RecipeManager {
 
     const files: string[] = [];
     for (const pattern of patterns) {
-      const matches = await glob(pattern, { nodir: true });
+      const matches = await glob(pattern, {
+        nodir: true,
+        ignore: ['**/node_modules/**', '**/.git/**']
+      });
       files.push(...matches);
     }
 
@@ -420,6 +430,13 @@ export class RecipeManager {
     const fileName = getRecipeFileName(name, ext);
     const filePath = path.join(library.path, fileName);
 
+    // Security: prevent path traversal attacks
+    const resolvedPath = path.resolve(filePath);
+    const resolvedLibrary = path.resolve(library.path);
+    if (!resolvedPath.startsWith(resolvedLibrary + path.sep)) {
+      throw new Error(`Invalid recipe name: path traversal detected`);
+    }
+
     // Validate recipe
     const validation = RecipeSchema.safeParse(recipe);
     if (!validation.success) {
@@ -646,11 +663,12 @@ export class RecipeManager {
   }
 
   /**
-   * Execute a recipe with parameters
+   * Execute a recipe with parameters: renders the Nunjucks template, then
+   * sends the resulting prompt to the configured AI model and returns the response.
    */
   public async executeRecipe(recipeName: string, parameters: Record<string, string>): Promise<RecipeExecutionResult> {
     const recipe = await this.findRecipe(recipeName);
-    
+
     if (!recipe) {
       return {
         success: false,
@@ -660,20 +678,48 @@ export class RecipeManager {
         parameters
       };
     }
-    
+
     const paramMap = new Map(Object.entries(parameters));
-    
-    // Render the recipe with parameters
     const renderedRecipe = await this.renderRecipe(recipe, paramMap);
-    
-    // For now, just return the rendered prompt as output
-    // In a real implementation, this would execute the recipe through the AI model
-    return {
-      success: true,
-      output: renderedRecipe.prompt || 'Recipe executed successfully',
-      duration: 0,
-      parameters
-    };
+    const prompt = renderedRecipe.prompt;
+
+    if (!prompt) {
+      return {
+        success: false,
+        output: '',
+        error: `Recipe '${recipeName}' produced an empty prompt after rendering`,
+        duration: 0,
+        parameters
+      };
+    }
+
+    const startTime = Date.now();
+    try {
+      const config = loadConfig();
+      const model = config.defaultModel || config.model || 'llama3.2:1b';
+
+      // Pass any recipe system_prompt as prior context so the model knows the framing
+      const history = renderedRecipe.system_prompt
+        ? [`system: ${renderedRecipe.system_prompt}`]
+        : [];
+
+      const output = await generateChatResponseWithHistory(prompt, model, history);
+
+      return {
+        success: true,
+        output,
+        duration: Date.now() - startTime,
+        parameters
+      };
+    } catch (error) {
+      return {
+        success: false,
+        output: '',
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime,
+        parameters
+      };
+    }
   }
 
   /**

@@ -75,7 +75,7 @@ export function startCommitWatcher(projectDir: string = process.cwd()): void {
 
 export function stopCommitWatcher(): void {
   if (watcher) {
-    watcher.close();
+    void watcher.close();
     watcher = null;
   }
 }

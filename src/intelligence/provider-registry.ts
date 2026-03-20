@@ -5,6 +5,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import type OpenAILib from 'openai';
+import { getLangfuseTracer } from './langfuse-tracer.js';
 
 export interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -82,7 +83,8 @@ export class ClaudeProvider implements Provider {
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
     // Use cache_control system blocks if provided (for prompt caching)
-    const systemParam: any = options.systemBlocks || systemMsg?.content;
+    const systemParam: Parameters<typeof client.messages.create>[0]['system'] =
+      (options.systemBlocks as Parameters<typeof client.messages.create>[0]['system']) || systemMsg?.content;
 
     const response = await client.messages.create({
       model,
@@ -209,11 +211,21 @@ export class ProviderRegistry {
   }
   
   getBestAvailable(prefer?: string): Provider | undefined {
+    let provider: Provider | undefined;
+
     if (prefer && this.providers.has(prefer)) {
       const p = this.providers.get(prefer)!;
-      if (p.isAvailable()) return p;
+      if (p.isAvailable()) provider = p;
     }
-    return this.getAvailable()[0];
+
+    provider ??= this.getAvailable()[0];
+
+    // Wrap with Langfuse tracing when env vars are present.
+    if (provider && (process.env.LANGFUSE_PUBLIC_KEY && process.env.LANGFUSE_SECRET_KEY)) {
+      return new TracedProvider(provider);
+    }
+
+    return provider;
   }
 }
 
@@ -273,6 +285,56 @@ export class OpenAICompatibleIntelligenceProvider implements Provider {
 
   estimateCost(inputTokens: number, outputTokens: number): number {
     return (inputTokens * 0.5 + outputTokens * 1.5) / 1_000_000;
+  }
+}
+
+/**
+ * TracedProvider wraps any Provider and records every complete() call as a
+ * Langfuse generation. completeStream() is delegated without tracing because
+ * token counts are not available mid-stream.
+ *
+ * When Langfuse is not configured the wrapper is transparent — all calls pass
+ * straight through to the underlying provider.
+ */
+export class TracedProvider implements Provider {
+  name: string;
+
+  constructor(private readonly inner: Provider) {
+    this.name = inner.name;
+  }
+
+  isAvailable(): boolean {
+    return this.inner.isAvailable();
+  }
+
+  getDefaultModel(): string {
+    return this.inner.getDefaultModel();
+  }
+
+  estimateCost(inputTokens: number, outputTokens: number, model?: string): number {
+    return this.inner.estimateCost(inputTokens, outputTokens, model);
+  }
+
+  async complete(messages: Message[], options: CompletionOptions = {}): Promise<string> {
+    const model = options.model ?? this.inner.getDefaultModel();
+    const tracer = getLangfuseTracer();
+
+    return tracer.traceCompletion(
+      {
+        name: `${this.name}/complete`,
+        model,
+        provider: this.name,
+        input: messages.map(m => ({ role: m.role, content: m.content })),
+      },
+      async () => {
+        const text = await this.inner.complete(messages, options);
+        return { text };
+      }
+    );
+  }
+
+  async *completeStream(messages: Message[], options: CompletionOptions = {}): AsyncGenerator<string> {
+    yield* this.inner.completeStream(messages, options);
   }
 }
 

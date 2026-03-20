@@ -12,7 +12,9 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { createRequire } from 'module';
 import Database from 'better-sqlite3';
+import { spawn } from 'node-pty';
 
 // Lazy-loaded DB for strategic system endpoints
 function getStrategicDb(): Database.Database | null {
@@ -166,6 +168,7 @@ class ProductionDashboardServer extends EventEmitter {
     this.setupMiddleware();
     this.setupRoutes();
     this.setupWebSocket();
+    this.setupTerminalNamespace();
     this.setupErrorHandling();
   }
 
@@ -291,6 +294,60 @@ class ProductionDashboardServer extends EventEmitter {
 
       socket.on('error', (error) => {
         this.logError('WebSocket error', error);
+      });
+    });
+  }
+
+  /**
+   * Terminal namespace — exposes a real PTY session to the browser via Socket.IO.
+   * Each connection spawns an isolated canvas CLI process tied to that socket.
+   * The PTY is killed when the socket disconnects, preventing orphaned processes.
+   */
+  private setupTerminalNamespace(): void {
+    const terminalNsp = this.io.of('/terminal');
+
+    terminalNsp.on('connection', (socket) => {
+      this.logAudit('terminal_connect', socket.id);
+
+      // Spawn an interactive canvas CLI session
+      const pty = spawn(
+        process.execPath, // use the same Node.js binary as the server
+        [path.join(process.cwd(), 'dist/index.js')],
+        {
+          name: 'xterm-color',
+          cols: 80,
+          rows: 24,
+          cwd: process.cwd(),
+          env: process.env as Record<string, string>,
+        }
+      );
+
+      // Stream PTY output to the browser
+      pty.onData((data: string) => {
+        socket.emit('output', data);
+      });
+
+      // Forward browser keystrokes to the PTY
+      socket.on('input', (data: string) => {
+        pty.write(data);
+      });
+
+      // Resize PTY when the browser terminal is resized
+      socket.on('resize', (size: { cols: number; rows: number }) => {
+        try {
+          pty.resize(size.cols, size.rows);
+        } catch {
+          // Ignore resize errors on already-exited processes
+        }
+      });
+
+      socket.on('disconnect', () => {
+        this.logAudit('terminal_disconnect', socket.id);
+        try {
+          pty.kill();
+        } catch {
+          // Process may have already exited
+        }
       });
     });
   }

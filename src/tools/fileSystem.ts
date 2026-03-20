@@ -3,12 +3,49 @@ import fs from 'fs-extra';
 import path from 'path';
 import { glob } from 'glob';
 import chalk from 'chalk';
+import { WORKSPACE_ROOT } from '../ollama/project-context.js';
+
+/**
+ * Fuzzy string-replace for LLM edits.
+ *
+ * LLMs often emit old_string with slightly wrong indentation or trailing
+ * whitespace. This normalizes both the search string and a sliding window of
+ * the file content to find a near-match, then applies the replacement at the
+ * original (unnormalized) position in the file.
+ *
+ * Returns the updated file content, or null if no fuzzy match found.
+ */
+function fuzzyReplaceBlock(content: string, oldString: string, newString: string): string | null {
+  const normalizeBlock = (s: string) =>
+    s.split('\n').map(l => l.trimEnd()).join('\n').trim();
+
+  const normOld = normalizeBlock(oldString);
+  const oldLineCount = oldString.split('\n').length;
+  const contentLines = content.split('\n');
+
+  for (let i = 0; i <= contentLines.length - oldLineCount; i++) {
+    const window = contentLines.slice(i, i + oldLineCount).join('\n');
+    if (normalizeBlock(window) === normOld) {
+      // Found: replace this window with newString, preserving surrounding lines
+      const before = contentLines.slice(0, i).join('\n');
+      const after = contentLines.slice(i + oldLineCount).join('\n');
+      const parts = [before, newString, after].filter(p => p !== '');
+      // Preserve leading/trailing newlines from original
+      const result = before ? before + '\n' + newString : newString;
+      return after ? result + '\n' + after : result;
+    }
+  }
+
+  return null;
+}
 
 function validatePath(filePath: string): void {
-  const allowedRoot = path.resolve(process.cwd());
+  // Use the workspace root captured at launch — not process.cwd() which can
+  // drift if a shell command changes directory mid-session.
+  const allowedRoot = WORKSPACE_ROOT;
   const resolved = path.resolve(filePath);
   if (resolved !== allowedRoot && !resolved.startsWith(allowedRoot + path.sep)) {
-    throw new Error(`Access denied: path '${filePath}' is outside the workspace`);
+    throw new Error(`Access denied: path '${filePath}' is outside the workspace (${allowedRoot})`);
   }
 }
 
@@ -157,7 +194,15 @@ export class EditFileTool extends BaseTool {
     const occurrences = content.split(oldString).length - 1;
 
     if (occurrences === 0) {
-      // Show helpful context for debugging
+      // Fuzzy fallback: normalize whitespace per line and retry.
+      // LLMs frequently emit slightly wrong indentation — this recovers silently.
+      const fuzzyResult = fuzzyReplaceBlock(content, oldString, newString);
+      if (fuzzyResult !== null) {
+        await fs.writeFile(filePath, fuzzyResult, 'utf-8');
+        console.log(chalk.green(`✓ Edited file (fuzzy match): ${params.path}`));
+        return `Successfully edited ${params.path} (fuzzy whitespace match applied)`;
+      }
+
       const preview = oldString.length > 100 ? oldString.substring(0, 100) + '...' : oldString;
       throw new Error(`Text not found in file. Looking for:\n"${preview}"\n\nMake sure the text matches exactly including whitespace and line endings.`);
     }
@@ -241,10 +286,9 @@ export class SearchFilesTool extends BaseTool {
   };
 
   async execute(params: { pattern: string; content?: string }): Promise<any[]> {
-    const files = (await glob(params.pattern, { cwd: process.cwd() })).filter(file => {
-      const allowedRoot = path.resolve(process.cwd());
+    const files = (await glob(params.pattern, { cwd: WORKSPACE_ROOT })).filter(file => {
       const resolved = path.resolve(file);
-      return resolved === allowedRoot || resolved.startsWith(allowedRoot + path.sep);
+      return resolved === WORKSPACE_ROOT || resolved.startsWith(WORKSPACE_ROOT + path.sep);
     });
     const results = [];
 

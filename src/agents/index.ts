@@ -256,18 +256,58 @@ Execute the task using the tools above. Be concise and focused.`;
   }
 
   /**
-   * Execute agent loop (simplified - in production would call LLM)
+   * Execute agent loop — calls LLM, parses tool calls, executes them, feeds results back
    */
   private async executeAgentLoop(agent: AgentConfig, prompt: string): Promise<string> {
-    // This is a placeholder - in production, this would:
-    // 1. Call the LLM with the prompt
-    // 2. Parse tool calls from response
-    // 3. Execute tools
-    // 4. Feed results back to LLM
-    // 5. Repeat until done
+    const { getUnifiedProvider } = await import('../intelligence/unified-provider.js');
+    const { parseToolCalls } = await import('../toolPrompt.js');
 
-    // For now, return the prompt as acknowledgment
-    return `Agent ${agent.type} received task. Implementation pending LLM integration.`;
+    const provider = getUnifiedProvider();
+    if (!provider) {
+      // Fallback: Ollama-native loop via generateResponseWithTools
+      const { generateResponseWithTools } = await import('../ollama/response-generator.js');
+      const config = await loadConfig();
+      const model = agent.model || config.defaultModel || 'llama3.2';
+      const { CommandHandler } = await import('../commands.js');
+      const handler = new CommandHandler();
+      return generateResponseWithTools(prompt, model, handler, false);
+    }
+
+    const MAX_ITERATIONS = 10;
+    const messages: Array<{ role: string; content: string }> = [
+      { role: 'user', content: prompt }
+    ];
+
+    let lastResponse = '';
+
+    for (let i = 0; i < MAX_ITERATIONS; i++) {
+      const response = await provider.complete(messages as any, {
+        model: agent.model,
+        stream: false
+      });
+
+      lastResponse = response;
+      messages.push({ role: 'assistant', content: response });
+
+      const toolCalls = parseToolCalls(response);
+      if (toolCalls.length === 0) break;
+
+      for (const toolCall of toolCalls) {
+        const tool = this.toolRegistry.get(toolCall.name);
+        if (!tool) {
+          messages.push({ role: 'user', content: `Tool "${toolCall.name}" not found.` });
+          continue;
+        }
+        try {
+          const result = await this.toolRegistry.execute(toolCall.name, toolCall.parameters);
+          messages.push({ role: 'user', content: `TOOL RESULT (${toolCall.name}):\n${String(result)}` });
+        } catch (err: any) {
+          messages.push({ role: 'user', content: `TOOL ERROR (${toolCall.name}): ${err.message}` });
+        }
+      }
+    }
+
+    return lastResponse;
   }
 
   /**

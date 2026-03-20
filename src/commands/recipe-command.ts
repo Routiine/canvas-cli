@@ -390,34 +390,122 @@ export function createRecipeCommand(): Command {
   recipeCommand
     .command('browse')
     .alias('search')
-    .description('Browse the recipe marketplace')
+    .description('Browse the recipe marketplace (GitHub topic: canvas-cli-recipe)')
     .option('-q, --query <query>', 'Search query')
-    .option('-t, --tags <tags>', 'Filter by tags')
+    .option('-t, --tags <tags>', 'Filter by tags (comma-separated)')
     .action(async (options) => {
-      console.log(chalk.blue('🛒 Recipe Marketplace\n'));
-      console.log(chalk.yellow('Marketplace integration coming soon!'));
-      console.log(chalk.gray('Visit https://canvas-cli.dev/recipes for available recipes'));
+      const spinner = ora('Searching GitHub for recipes...').start();
+      try {
+        const tags = options.tags ? options.tags.split(',').map((t: string) => t.trim()) : [];
+        const query = [
+          'topic:canvas-cli-recipe',
+          options.query || '',
+          ...tags.map((t: string) => `topic:${t}`)
+        ].filter(Boolean).join('+');
+
+        const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent(query)}&sort=stars&per_page=20`;
+        const headers: Record<string, string> = { 'Accept': 'application/vnd.github+json', 'User-Agent': 'canvas-cli' };
+        const token = process.env.GITHUB_TOKEN;
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const resp = await fetch(apiUrl, { headers });
+        if (!resp.ok) throw new Error(`GitHub API ${resp.status}: ${resp.statusText}`);
+        const data = await resp.json() as any;
+
+        spinner.stop();
+        console.log(chalk.blue(`\n🛒 Recipe Marketplace — ${data.total_count} recipes found\n`));
+
+        if (data.items.length === 0) {
+          console.log(chalk.dim('  No recipes found. Try a different query.'));
+          return;
+        }
+
+        for (const repo of data.items) {
+          console.log(`  ${chalk.bold(repo.full_name)} ${chalk.dim(`★ ${repo.stargazers_count}`)}`);
+          if (repo.description) console.log(`    ${chalk.dim(repo.description)}`);
+          console.log(`    ${chalk.cyan(`canvas recipe install ${repo.full_name}`)}\n`);
+        }
+      } catch (err: any) {
+        spinner.fail(`Search failed: ${err.message}`);
+      }
     });
 
-  // Install from marketplace
+  // Install from marketplace (GitHub repo)
   recipeCommand
     .command('install <recipe-name>')
     .alias('i')
-    .description('Install a recipe from the marketplace')
+    .description('Install a recipe from GitHub (owner/repo or short name)')
     .action(async (recipeName) => {
-      console.log(chalk.blue(`Installing recipe: ${recipeName}`));
-      console.log(chalk.yellow('Marketplace integration coming soon!'));
-      console.log(chalk.gray('For now, manually download recipes from https://canvas-cli.dev/recipes'));
+      const spinner = ora(`Installing recipe: ${recipeName}...`).start();
+      try {
+        const recipeManager = new RecipeManager();
+        await recipeManager.loadLibraries();
+
+        // Resolve short name → owner/repo via GitHub search
+        let repoFullName = recipeName;
+        if (!recipeName.includes('/')) {
+          const apiUrl = `https://api.github.com/search/repositories?q=${encodeURIComponent('topic:canvas-cli-recipe ' + recipeName)}&per_page=1`;
+          const headers: Record<string, string> = { 'Accept': 'application/vnd.github+json', 'User-Agent': 'canvas-cli' };
+          const token = process.env.GITHUB_TOKEN;
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+
+          const resp = await fetch(apiUrl, { headers });
+          const data = await resp.json() as any;
+          if (!data.items || data.items.length === 0) throw new Error(`Recipe "${recipeName}" not found on GitHub`);
+          repoFullName = data.items[0].full_name;
+        }
+
+        // Download raw recipe YAML from GitHub
+        const tryUrls = [
+          `https://raw.githubusercontent.com/${repoFullName}/main/recipe.yaml`,
+          `https://raw.githubusercontent.com/${repoFullName}/main/recipe.yml`,
+          `https://raw.githubusercontent.com/${repoFullName}/master/recipe.yaml`,
+          `https://raw.githubusercontent.com/${repoFullName}/master/recipe.yml`
+        ];
+
+        let recipeContent: string | null = null;
+        for (const url of tryUrls) {
+          const r = await fetch(url, { headers: { 'User-Agent': 'canvas-cli' } });
+          if (r.ok) { recipeContent = await r.text(); break; }
+        }
+        if (!recipeContent) throw new Error(`No recipe.yaml found in ${repoFullName}`);
+
+        const recipe = yaml.load(recipeContent) as any;
+        const recipeName2 = recipe.name || repoFullName.split('/').pop() || recipeName;
+        await recipeManager.saveRecipe(recipeName2, recipe, 'user', 'yaml');
+
+        spinner.succeed(`Recipe installed: ${repoFullName}`);
+        console.log(chalk.dim(`  Run with: canvas recipe run ${recipeName.split('/').pop()}`));
+      } catch (err: any) {
+        spinner.fail(`Install failed: ${err.message}`);
+      }
     });
 
-  // Publish to marketplace
+  // Publish to marketplace (guides user through GitHub topic setup)
   recipeCommand
     .command('publish <recipe-name>')
-    .description('Publish a recipe to the marketplace')
+    .description('Publish a recipe to the marketplace via GitHub')
     .action(async (recipeName) => {
-      console.log(chalk.blue(`Publishing recipe: ${recipeName}`));
-      console.log(chalk.yellow('Marketplace integration coming soon!'));
-      console.log(chalk.gray('For now, submit recipes via GitHub PR to the Canvas CLI repository'));
+      const recipeManager = new RecipeManager();
+      await recipeManager.loadLibraries();
+      const recipe = await recipeManager.loadRecipe(recipeName);
+
+      if (!recipe) {
+        console.log(chalk.red(`Recipe "${recipeName}" not found. Create it first with: canvas recipe create ${recipeName}`));
+        return;
+      }
+
+      console.log(chalk.blue(`\n📦 Publishing "${recipeName}" to marketplace\n`));
+      console.log(chalk.bold('Steps to publish:'));
+      console.log(`  1. Create a GitHub repo (e.g. github.com/you/${recipeName}-recipe)`);
+      console.log(`  2. Add ${chalk.cyan('recipe.yaml')} with your recipe content`);
+      console.log(`  3. Add topic ${chalk.cyan('canvas-cli-recipe')} to the repo settings`);
+      console.log(`  4. Your recipe will appear in ${chalk.cyan('canvas recipe browse')}\n`);
+      console.log(chalk.dim('Exporting recipe.yaml to current directory...'));
+
+      const exportPath = path.join(process.cwd(), 'recipe.yaml');
+      await fs.writeFile(exportPath, yaml.dump(recipe));
+      console.log(chalk.green(`  ✓ Written to ${exportPath}`));
     });
 
   return recipeCommand;

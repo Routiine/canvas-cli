@@ -3,7 +3,12 @@ import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import { createServer, type Server as HttpServer } from 'http';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import fs from 'fs-extra';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 import chalk from 'chalk';
 import type { Message} from '../types.js';
 import { Tool } from '../types.js';

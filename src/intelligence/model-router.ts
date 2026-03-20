@@ -146,8 +146,9 @@ export class ModelRouter {
     for (const provider of ordered) {
       try {
         return await provider.complete(messages, { model: decision.model });
-      } catch (error: any) {
-        console.warn(`Provider ${provider.name} failed: ${error.message}, trying fallback...`);
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn(`Provider ${provider.name} failed: ${msg}, trying fallback...`);
       }
     }
 

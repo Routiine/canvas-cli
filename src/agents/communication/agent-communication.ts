@@ -518,7 +518,7 @@ export class AgentCommunicationHub extends EventEmitter {
 
   private startMessageProcessor(): void {
     // Process message queues periodically
-    setInterval(() => {
+    const interval = setInterval(() => {
       for (const [agentId, queue] of this.messageQueue) {
         if (queue.length > 0) {
           // Process messages (simplified)
@@ -526,6 +526,7 @@ export class AgentCommunicationHub extends EventEmitter {
         }
       }
     }, 1000);
+    interval.unref();
   }
 
   private generateMessageId(): string {

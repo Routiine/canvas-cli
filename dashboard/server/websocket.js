@@ -111,13 +111,14 @@ export function initWebSocket(app) {
 
     // Handle disconnection
     socket.on('disconnect', () => {
-      console.log('🔌 Socket disconnected:', socket.id)
+      console.log('Socket disconnected:', socket.id)
+      // Read userId BEFORE deleting so the broadcast has the correct user
+      const disconnectedUserId = clients.get(socket.id)?.userId
       clients.delete(socket.id)
-      
-      // Notify other clients
+
       io.emit('assistant:activity', {
         type: 'disconnect',
-        userId: clients.get(socket.id)?.userId,
+        userId: disconnectedUserId,
         timestamp: new Date()
       })
     })

@@ -41,7 +41,9 @@ export const RecipeParameterSchema = z.object({
 
 export const RecipeSchema = z.object({
   version: z.string().default('1.0.0'),
-  title: z.string().min(1),
+  title: z.string().min(1).refine(v => !v.includes('..') && !v.includes('/') && !v.includes('\\'), {
+    message: 'Recipe title must not contain path separators or traversal sequences'
+  }),
   description: z.string(),
   author: z.string().optional(),
   tags: z.array(z.string()).optional(),
@@ -127,9 +129,11 @@ export function isValidRecipeExtension(extension: string): extension is RecipeFi
 }
 
 export function getRecipeFileName(name: string, extension: RecipeFileExtension = '.yaml'): string {
-  return name.endsWith('.yaml') || name.endsWith('.yml') || name.endsWith('.json') 
-    ? name 
-    : name + extension;
+  // Strip path separators and traversal sequences to prevent writing outside recipes dir
+  const safeName = name.replace(/[/\\]/g, '-').replace(/\.\.+/g, '.');
+  return safeName.endsWith('.yaml') || safeName.endsWith('.yml') || safeName.endsWith('.json')
+    ? safeName
+    : safeName + extension;
 }
 
 export function extractRecipeName(filePath: string): string {

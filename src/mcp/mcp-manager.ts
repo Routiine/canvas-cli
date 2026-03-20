@@ -134,6 +134,22 @@ export class MCPManager extends EventEmitter {
   }
 
   /**
+   * Get the list of configured MCP servers
+   */
+  getServers(): MCPServer[] {
+    return this.config.servers;
+  }
+
+  /**
+   * Start a server by name (public wrapper for internal startServer)
+   */
+  async startServerByName(name: string): Promise<void> {
+    const server = this.config.servers.find(s => s.name === name);
+    if (!server) throw new Error(`MCP server not found: ${name}`);
+    await this.startServer(server);
+  }
+
+  /**
    * Initialize MCP servers
    */
   async initialize(): Promise<void> {
@@ -175,9 +191,10 @@ export class MCPManager extends EventEmitter {
         env: { ...process.env, ...server.env } as Record<string, string>,
       });
 
-      // Create client (Implementation, ClientOptions)
+      // Create client — pass empty capabilities; the server advertises its own
       const client = new Client(
         { name: `canvas-cli-${server.name}`, version: '1.0.0' },
+        { capabilities: {} }
       );
 
       // Connect to server via transport
@@ -556,7 +573,7 @@ export function createMCPCommand(program: any): void {
     .option('--sources', 'Show config file sources')
     .action(async (options: { sources?: boolean }) => {
       const manager = MCPManager.getInstance();
-      const servers = manager['config'].servers;
+      const servers = manager.getServers();
 
       if (options.sources) {
         const sources = manager.getConfigSources();
@@ -615,12 +632,11 @@ export function createMCPCommand(program: any): void {
     .description('Start an MCP server')
     .action(async (name: string) => {
       const manager = MCPManager.getInstance();
-      const server = manager['config'].servers.find(s => s.name === name);
-      if (server) {
-        await manager['startServer'](server);
-        console.log(`✅ Started MCP server: ${name}`);
-      } else {
-        console.error(`❌ Server ${name} not found`);
+      try {
+        await manager.startServerByName(name);
+        console.log(`Started MCP server: ${name}`);
+      } catch (err) {
+        console.error(`Failed to start MCP server ${name}: ${err instanceof Error ? err.message : String(err)}`);
       }
     });
 

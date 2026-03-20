@@ -714,17 +714,49 @@ export class GitHubAdvancedIntegration extends EventEmitter {
   }
   
   private async getCodeQualityMetrics(owner: string, repo: string): Promise<CodeQualityMetrics> {
-    // This would integrate with code quality tools like CodeClimate, SonarQube, etc.
-    // For now, return placeholder metrics
-    return {
-      coverage: 80,
-      maintainabilityIndex: 75,
-      cyclomaticComplexity: 10,
-      duplicateLines: 5,
-      technicalDebt: 24, // Hours
-      codeSmells: 15,
-      vulnerabilities: 2
-    };
+    const metrics: CodeQualityMetrics = {};
+
+    try {
+      // Vulnerabilities: GitHub security advisories / code scanning alerts
+      try {
+        const { data: alerts } = await this.octokit.request('GET /repos/{owner}/{repo}/code-scanning/alerts', {
+          owner, repo, state: 'open', per_page: 100
+        });
+        metrics.vulnerabilities = (alerts as any[]).filter((a: any) => a.rule?.severity === 'error' || a.rule?.severity === 'critical').length;
+      } catch {
+        // Code scanning not enabled — check Dependabot alerts
+        try {
+          const { data: depAlerts } = await this.octokit.request('GET /repos/{owner}/{repo}/vulnerability-alerts', { owner, repo });
+          void depAlerts; // 204 = enabled, no alerts
+          metrics.vulnerabilities = 0;
+        } catch { /* not available */ }
+      }
+
+      // Code smells / technical debt: approximate from TODO/FIXME count in search results
+      try {
+        const { data: todoSearch } = await this.octokit.search.code({
+          q: `repo:${owner}/${repo} TODO OR FIXME`,
+          per_page: 1
+        });
+        const todoCount = todoSearch.total_count;
+        metrics.codeSmells = Math.min(todoCount, 999);
+        metrics.technicalDebt = Math.round(todoCount * 0.5); // ~30min per TODO
+      } catch { /* search rate limited */ }
+
+      // Maintainability: derive from commit frequency (active repo = more maintainable)
+      try {
+        const { data: stats } = await this.octokit.repos.getCommitActivityStats({ owner, repo });
+        if (stats && Array.isArray(stats)) {
+          const recentWeeks = stats.slice(-12);
+          const avgCommitsPerWeek = recentWeeks.reduce((s: number, w: any) => s + w.total, 0) / Math.max(recentWeeks.length, 1);
+          // Active repos score higher: 0 commits/week = 40, 10+ = 90
+          metrics.maintainabilityIndex = Math.min(90, Math.round(40 + avgCommitsPerWeek * 5));
+        }
+      } catch { /* stats not available */ }
+
+    } catch { /* API unavailable */ }
+
+    return metrics;
   }
   
   private async getActivityMetrics(owner: string, repo: string): Promise<ActivityMetrics> {

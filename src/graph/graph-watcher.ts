@@ -55,7 +55,7 @@ export function startGraphWatcher(rootDir: string = process.cwd()): void {
 
 export function stopGraphWatcher(): void {
   if (watcher) {
-    watcher.close();
+    void watcher.close();
     watcher = null;
   }
 }

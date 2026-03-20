@@ -180,9 +180,16 @@ export class PluginManager {
       const tempPath = path.join(os.tmpdir(), `canvas-plugin-${pluginName}`);
       await fs.writeFile(`${tempPath}.tar.gz`, archiveResponse.data);
       
-      // Extract archive (would use tar or similar)
-      // For now, this is a placeholder
-      
+      // Extract archive using tar
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+
+      const pluginInstallPath = path.join(this.pluginDir, pluginName);
+      await fs.ensureDir(pluginInstallPath);
+      await execFileAsync('tar', ['-xzf', `${tempPath}.tar.gz`, '-C', pluginInstallPath, '--strip-components=1']);
+      await fs.remove(`${tempPath}.tar.gz`);
+
       console.log(chalk.green(`✓ Downloaded plugin: ${pluginName}`));
     } catch (error) {
       console.error(chalk.red(`Failed to install from registry: ${pluginName}`));

@@ -792,8 +792,28 @@ export class FlowNexusCLI {
       logs.forEach(log => console.log(log));
 
       if (options.follow) {
-        // TODO: Implement real-time log following
-        console.log(chalk.yellow('\nReal-time log following not yet implemented'));
+        console.log(chalk.dim('\nStreaming logs (Ctrl+C to stop)...\n'));
+        const pollInterval = 2000;
+        let lastLogCount = logs.length;
+
+        const poller = setInterval(async () => {
+          try {
+            const fresh = await platform.getAgentLogs(deploymentId, agentId, {
+              lines: options.lines,
+              level: options.level
+            });
+            const newLogs = fresh.slice(lastLogCount);
+            if (newLogs.length > 0) {
+              newLogs.forEach((log: string) => console.log(log));
+              lastLogCount = fresh.length;
+            }
+          } catch { /* ignore poll errors */ }
+        }, pollInterval);
+
+        process.on('SIGINT', () => {
+          clearInterval(poller);
+          process.exit(0);
+        });
       }
     } catch (error: any) {
       spinner.fail(`Failed to fetch logs: ${error.message}`);

@@ -7,6 +7,7 @@ import type { Tool } from '../types.js';
 import fs from 'fs-extra';
 import path from 'path';
 import crypto from 'crypto';
+import { astChunkFile, detectLanguage } from './ast-analyzer.js';
 
 interface CodeChunk {
   id: string;
@@ -201,7 +202,29 @@ async function buildIndex(rootDir: string): Promise<CodebaseIndex> {
         if (CODE_EXTENSIONS.includes(ext)) {
           try {
             const content = await fs.readFile(fullPath, 'utf-8');
-            const fileChunks = parseCodeChunks(content, relativePath);
+
+            // Use AST-aware chunking for recognised code files; fall back to
+            // the regex-based parser for everything else (SQL, GraphQL, etc.)
+            const isAstSupported = detectLanguage(fullPath) !== null;
+            let fileChunks: CodeChunk[];
+
+            if (isAstSupported) {
+              const astChunks = await astChunkFile(fullPath, content);
+              fileChunks = astChunks.map(ac => ({
+                id: `${path.basename(fullPath)}-${ac.startLine}`,
+                file: relativePath,
+                startLine: ac.startLine,
+                endLine: ac.endLine,
+                content: ac.text,
+                type: ac.type as CodeChunk['type'],
+                name: ac.name,
+                signature: ac.text.split('\n')[0].trim(),
+                hash: crypto.createHash('md5').update(ac.text).digest('hex').slice(0, 8),
+              }));
+            } else {
+              fileChunks = parseCodeChunks(content, relativePath);
+            }
+
             chunks.push(...fileChunks);
             fileCount++;
 

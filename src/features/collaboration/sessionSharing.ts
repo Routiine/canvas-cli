@@ -7,6 +7,11 @@ import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'path';
 import os from 'os';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // 3. Session Sharing & Live Collaboration
 export interface SharedSession {

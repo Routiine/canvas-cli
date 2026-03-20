@@ -336,8 +336,40 @@ export class MultimodalContextSystem extends EventEmitter {
       await fs.writeJson(exportPath, exportData, { spaces: 2 });
       return exportPath;
     } else {
-      // ZIP export would go here
-      throw new Error('ZIP export not yet implemented');
+      // ZIP export: write all attachment files + manifest into a tar.gz
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+
+      const zipStageDir = path.join(exportDir, `context-${contextId}-zip`);
+      await fs.ensureDir(zipStageDir);
+
+      // Write manifest
+      const manifest = {
+        sessionId: context.sessionId,
+        exportedAt: new Date(),
+        attachments: Array.from(context.attachments.values()).map(a => ({
+          id: a.id,
+          name: a.name,
+          type: a.type,
+          size: a.size,
+          metadata: a.metadata
+        }))
+      };
+      await fs.writeJson(path.join(zipStageDir, 'manifest.json'), manifest, { spaces: 2 });
+      await fs.writeJson(path.join(zipStageDir, 'extracted-data.json'), Object.fromEntries(context.extractedData), { spaces: 2 });
+
+      // Copy attachment files
+      for (const attachment of context.attachments.values()) {
+        if (attachment.path && await fs.pathExists(attachment.path)) {
+          await fs.copy(attachment.path, path.join(zipStageDir, path.basename(attachment.path)));
+        }
+      }
+
+      const archivePath = path.join(exportDir, `context-${contextId}.tar.gz`);
+      await execFileAsync('tar', ['-czf', archivePath, '-C', exportDir, `context-${contextId}-zip`]);
+      await fs.remove(zipStageDir);
+      return archivePath;
     }
   }
   

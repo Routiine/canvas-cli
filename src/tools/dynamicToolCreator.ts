@@ -5,19 +5,99 @@ import path from 'path';
 import chalk from 'chalk';
 import * as vm from 'vm';
 
+// ---------------------------------------------------------------------------
+// Tool definition validation
+// ---------------------------------------------------------------------------
+
+const GENERIC_NAMES = new Set([
+  'tool', 'tool1', 'tool2', 'new_tool', 'my_tool', 'custom_tool', 'test_tool',
+  'helper', 'util', 'utility', 'function', 'action', 'handler', 'task',
+  'do_thing', 'do_stuff', 'process', 'run', 'execute',
+]);
+
+const GENERIC_DESCRIPTIONS = [
+  /^(a\s+)?(tool|helper|utility)\s+(for|that)\s+(things|stuff|tasks|work)\.?$/i,
+  /^does\s+stuff\.?$/i,
+  /^handles\s+requests?\.?$/i,
+  /^processes?\s+(input|data|things)\.?$/i,
+  /^executes?\s+(commands?|actions?)\.?$/i,
+  /^(a\s+)?custom\s+tool\.?$/i,
+  /^tool\s+implementation\.?$/i,
+];
+
+interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+}
+
+function validateToolDefinition(
+  name: string,
+  description: string,
+  code: string,
+  purpose: string,
+): ValidationResult {
+  const errors: string[] = [];
+
+  // --- Name validation ---
+  if (!name || name.trim().length === 0) {
+    errors.push('Tool name is required.');
+  } else {
+    const n = name.trim();
+    if (!/^[a-z][a-z0-9_-]{3,39}$/.test(n)) {
+      errors.push(`Tool name "${n}" must be snake_case/kebab-case, start with a letter, 4–40 chars (e.g. "compress_folder", "fetch-rss-feed").`);
+    }
+    if (GENERIC_NAMES.has(n.replace(/-/g, '_'))) {
+      errors.push(`Tool name "${n}" is too generic. Use a descriptive name that reflects what the tool does (e.g. "backup_project_files" not "backup_tool").`);
+    }
+  }
+
+  // --- Description validation ---
+  if (!description || description.trim().length < 20) {
+    errors.push('Description must be at least 20 characters and explain what the tool does.');
+  } else {
+    const d = description.trim();
+    if (GENERIC_DESCRIPTIONS.some(p => p.test(d))) {
+      errors.push(`Description "${d}" is too generic. Describe the specific action and context (e.g. "Recursively compress a project folder into a timestamped .tar.gz archive").`);
+    }
+    // Must contain at least one action verb
+    if (!/\b(create|read|write|fetch|send|convert|compress|extract|analyze|search|generate|delete|update|list|run|execute|monitor|parse|validate|scan|build|deploy|backup|restore|format|sort|filter|merge|split|compare|check|report|log|cache|queue|notify|download|upload|sync|watch|index)\b/i.test(d)) {
+      errors.push('Description must contain at least one action verb describing what the tool does.');
+    }
+  }
+
+  // --- Code validation ---
+  if (!code || code.trim().length < 30) {
+    errors.push('Tool code is too short to be meaningful — must contain a real implementation.');
+  } else {
+    const stripped = code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
+    if (/^return\s+(null|undefined|true|false|['"`][^'"`]*['"`]|0);\s*$/.test(stripped)) {
+      errors.push('Tool code is a placeholder. Provide a real implementation that accomplishes the stated purpose.');
+    }
+  }
+
+  // --- Purpose validation ---
+  if (!purpose || purpose.trim().length < 10) {
+    errors.push('A purpose (the user request that triggered this tool) is required — min 10 characters.');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
 /**
  * Dynamic Tool Creator
- * Allows Canvas CLI to create new tools on-the-fly based on user needs
+ * Allows Canvas CLI to create new tools on-the-fly based on user needs.
+ * All tools must have a meaningful name, real description, working code, and a stated purpose.
  */
 export class DynamicToolCreator extends BaseTool {
   name = 'create_tool';
-  description = 'Create a new tool dynamically based on requirements';
+  description = 'Create a new tool dynamically. Requires: a descriptive snake_case name, a clear description of what it does (≥20 chars with an action verb), real implementation code, and the user purpose that triggered it.';
   parameters = {
-    name: { type: 'string', description: 'Name of the new tool' },
-    description: { type: 'string', description: 'What the tool does' },
-    code: { type: 'string', description: 'JavaScript code for the tool execution' },
-    parameters: { type: 'object', description: 'Parameters the tool accepts' },
-    save: { type: 'boolean', description: 'Save tool for future use', default: true }
+    name:        { type: 'string',  description: 'snake_case or kebab-case tool name (e.g. "compress_project_files")' },
+    description: { type: 'string',  description: 'What the tool does — min 20 chars, must include an action verb' },
+    purpose:     { type: 'string',  description: 'The user request that triggered this tool (why it was created)' },
+    code:        { type: 'string',  description: 'JavaScript implementation — must be a real, working function body' },
+    parameters:  { type: 'object',  description: 'Parameters the tool accepts' },
+    save:        { type: 'boolean', description: 'Save tool for future use', default: true },
   };
 
   private toolsDir = path.join(process.cwd(), '.canvas-cli', 'custom-tools');
@@ -31,11 +111,24 @@ export class DynamicToolCreator extends BaseTool {
   async execute(params: {
     name: string;
     description: string;
+    purpose: string;
     code: string;
     parameters: Record<string, any>;
     save?: boolean;
   }): Promise<string> {
-    const { name, description, code, parameters, save = true } = params;
+    const { name, description, purpose = '', code, parameters, save = true } = params;
+
+    // Validate before creating anything
+    const validation = validateToolDefinition(name, description, code, purpose);
+    if (!validation.valid) {
+      const msg = [
+        chalk.red(`✗ Cannot create tool "${name || '(unnamed)'}": validation failed`),
+        ...validation.errors.map(e => chalk.yellow(`  • ${e}`)),
+        chalk.dim('  Fix the issues above and try again.'),
+      ].join('\n');
+      console.log(msg);
+      return `Tool creation rejected:\n${validation.errors.map(e => `• ${e}`).join('\n')}`;
+    }
 
     console.log(chalk.cyan(`🔧 Creating new tool: ${name}`));
 
@@ -98,7 +191,7 @@ export class DynamicToolCreator extends BaseTool {
 
     // Save tool for persistence if requested
     if (save) {
-      await this.saveToolDefinition(name, description, code, parameters);
+      await this.saveToolDefinition(name, description, purpose, code, parameters);
     }
 
     console.log(chalk.green(`✓ Tool "${name}" created and registered`));
@@ -108,6 +201,7 @@ export class DynamicToolCreator extends BaseTool {
   private async saveToolDefinition(
     name: string,
     description: string,
+    purpose: string,
     code: string,
     parameters: Record<string, any>
   ): Promise<void> {
@@ -115,11 +209,12 @@ export class DynamicToolCreator extends BaseTool {
     const toolDef = {
       name,
       description,
+      purpose,       // why the tool was created — the user's original request
       code,
       parameters,
-      created: new Date().toISOString()
+      created: new Date().toISOString(),
     };
-    
+
     await fs.writeJSON(toolPath, toolDef, { spaces: 2 });
     console.log(chalk.dim(`💾 Tool saved to: ${toolPath}`));
   }
@@ -255,14 +350,15 @@ export class ToolIntrospector extends BaseTool {
 }
 
 /**
- * Self-Improvement Tool - Allows Canvas CLI to enhance itself
+ * Self-Improvement Tool — understands natural language requests and generates
+ * real tools using the local LLM. No hardcoded templates or pattern matching.
  */
 export class SelfImprovementTool extends BaseTool {
   name = 'self_improve';
-  description = 'Analyze user request and create necessary tools or capabilities';
+  description = 'Analyze a natural language user request, determine if a new tool is needed, and create one with a real name, description, and working implementation.';
   parameters = {
-    request: { type: 'string', description: 'What the user needs' },
-    context: { type: 'string', description: 'Current conversation context', optional: true }
+    request: { type: 'string', description: 'The user request in natural language' },
+    context: { type: 'string', description: 'Recent conversation context', optional: true },
   };
 
   constructor(
@@ -275,145 +371,139 @@ export class SelfImprovementTool extends BaseTool {
   async execute(params: { request: string; context?: string }): Promise<any> {
     const { request, context } = params;
 
-    // Validate request is provided
-    if (!request) {
+    if (!request?.trim()) {
+      return { action: 'error', message: 'No request provided.' };
+    }
+
+    // Check existing tools before creating anything new
+    const existing = this.registry.list();
+    const existingNames = existing.map(t => `${t.name}: ${t.description}`).join('\n');
+
+    console.log(chalk.cyan('🧠 Analyzing request — checking existing tools first...'));
+
+    // Ask the LLM whether a new tool is needed and if so, design it
+    const decision = await this.askLLM(request, context || '', existingNames);
+
+    if (!decision.needsNewTool) {
+      console.log(chalk.dim(`  existing tool sufficient: ${decision.suggestedTool || 'none needed'}`));
       return {
-        action: 'error',
-        message: 'No request provided for self-improvement analysis.'
+        action: 'no_improvement_needed',
+        message: decision.reason || 'Current capabilities are sufficient for this request.',
+        suggestedTool: decision.suggestedTool,
       };
     }
 
-    console.log(chalk.cyan('🧠 Analyzing request for self-improvement...'));
+    // Validate what the LLM designed before creating
+    const { name, description, purpose, code, parameters: toolParams } = decision;
+    const validation = validateToolDefinition(name, description, code, purpose);
 
-    // Analyze what's needed
-    const analysis = this.analyzeRequest(request);
-    
-    if (analysis.needsNewTool) {
-      console.log(chalk.yellow(`📝 Creating new tool: ${analysis.toolName}`));
-      
-      // Generate tool code based on requirements
-      const toolCode = this.generateToolCode(analysis);
-      
-      // Create the new tool
-      await this.toolCreator.execute({
-        name: analysis.toolName,
-        description: analysis.toolDescription,
-        code: toolCode,
-        parameters: analysis.toolParameters,
-        save: true
-      });
-
+    if (!validation.valid) {
+      console.log(chalk.yellow('⚠ LLM produced an invalid tool definition — skipping creation:'));
+      validation.errors.forEach(e => console.log(chalk.dim(`  • ${e}`)));
       return {
-        action: 'created_tool',
-        tool: analysis.toolName,
-        message: `I've created a new tool "${analysis.toolName}" to handle this request.`
+        action: 'validation_failed',
+        errors: validation.errors,
+        message: 'Could not create a valid tool from this request. Try being more specific.',
       };
     }
+
+    console.log(chalk.yellow(`📝 Creating tool: ${name}`));
+
+    await this.toolCreator.execute({
+      name,
+      description,
+      purpose,
+      code,
+      parameters: toolParams,
+      save: true,
+    });
 
     return {
-      action: 'no_improvement_needed',
-      message: 'Current capabilities are sufficient for this request.'
+      action: 'created_tool',
+      tool: name,
+      message: `Created tool "${name}" — ${description}`,
     };
   }
 
-  private analyzeRequest(request: string): any {
-    const lower = request.toLowerCase();
-    
-    // Check for common patterns that might need new tools
-    const patterns = [
-      {
-        match: /convert|transform|change.*format/i,
-        toolName: 'format_converter',
-        toolDescription: 'Convert between different file formats',
-        needsNewTool: true,
-        toolParameters: {
-          input: { type: 'string', description: 'Input file path' },
-          output: { type: 'string', description: 'Output file path' },
-          format: { type: 'string', description: 'Target format' }
-        }
-      },
-      {
-        match: /analyze|inspect|examine.*code/i,
-        toolName: 'code_analyzer',
-        toolDescription: 'Analyze code for patterns, issues, or metrics',
-        needsNewTool: true,
-        toolParameters: {
-          path: { type: 'string', description: 'File or directory to analyze' },
-          type: { type: 'string', description: 'Type of analysis' }
-        }
-      },
-      {
-        match: /backup|archive|compress/i,
-        toolName: 'backup_tool',
-        toolDescription: 'Create backups or archives of files',
-        needsNewTool: true,
-        toolParameters: {
-          source: { type: 'string', description: 'Source path' },
-          destination: { type: 'string', description: 'Backup destination' }
-        }
-      }
-    ];
+  /**
+   * Ask the local Ollama LLM to analyse the request and design a tool (or decide
+   * an existing one is sufficient). Returns a structured decision object.
+   */
+  private async askLLM(
+    request: string,
+    context: string,
+    existingTools: string,
+  ): Promise<{
+    needsNewTool: boolean;
+    reason?: string;
+    suggestedTool?: string;
+    name: string;
+    description: string;
+    purpose: string;
+    code: string;
+    parameters: Record<string, unknown>;
+  }> {
+    const { loadConfig } = await import('../config.js');
+    const config = loadConfig();
+    const baseUrl = config.ollamaUrl || config.ollama?.baseUrl || 'http://localhost:11434';
+    const model = config.defaultModel || config.ollama?.defaultModel || 'qwen2.5:14b';
 
-    for (const pattern of patterns) {
-      if (pattern.match.test(request)) {
-        return pattern;
-      }
+    const prompt = `You are a tool designer for a CLI assistant. A user made a request. Decide if a new tool is needed, and if so, design one.
+
+EXISTING TOOLS (do not recreate these):
+${existingTools || '(none)'}
+
+USER REQUEST: ${request}
+${context ? `\nCONTEXT: ${context}` : ''}
+
+Rules for tool design:
+- name: snake_case, 4–40 chars, descriptive (e.g. "compress_project_files", NOT "tool1" or "backup_tool")
+- description: ≥20 chars, includes an action verb, explains exactly what it does
+- purpose: copy the user's original request
+- code: real JavaScript that uses fs-extra, path, chalk. Must actually implement the logic.
+- parameters: object of { paramName: { type, description } }
+
+Respond with ONLY valid JSON (no markdown, no explanation):
+{
+  "needsNewTool": true or false,
+  "reason": "why or why not",
+  "suggestedTool": "existing tool name if needsNewTool=false, else null",
+  "name": "snake_case_tool_name",
+  "description": "What this tool does — action verb + specifics",
+  "purpose": "The user's original request",
+  "code": "// real JS implementation\\nconst fs = require('fs-extra');\\n...",
+  "parameters": { "param1": { "type": "string", "description": "..." } }
+}`;
+
+    try {
+      const res = await fetch(`${baseUrl}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          prompt,
+          stream: false,
+          options: { temperature: 0.2, num_predict: 800 },
+        }),
+      });
+
+      if (!res.ok) throw new Error(`Ollama returned ${res.status}`);
+
+      const data = await res.json() as { response?: string };
+      const raw = (data.response || '').trim();
+
+      // Extract JSON from response (model may wrap in backticks)
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in LLM response');
+
+      return JSON.parse(jsonMatch[0]);
+    } catch (err: any) {
+      console.log(chalk.dim(`  LLM design failed: ${err.message} — skipping tool creation`));
+      return {
+        needsNewTool: false,
+        reason: 'LLM could not design a valid tool.',
+        name: '', description: '', purpose: '', code: '', parameters: {},
+      };
     }
-
-    return { needsNewTool: false };
-  }
-
-  private generateToolCode(analysis: any): string {
-    // Generate appropriate code based on tool type
-    const codeTemplates: Record<string, string> = {
-      format_converter: `
-        const fs = require('fs-extra');
-        const path = require('path');
-        
-        const input = await fs.readFile(params.input, 'utf-8');
-        let output = input;
-        
-        // Perform conversion based on format
-        if (params.format === 'json') {
-          output = JSON.stringify(JSON.parse(input), null, 2);
-        } else if (params.format === 'yaml') {
-          // Basic conversion logic
-          output = input.replace(/:/g, ': ');
-        }
-        
-        await fs.writeFile(params.output, output);
-        return 'Conversion complete';
-      `,
-      code_analyzer: `
-        const fs = require('fs-extra');
-        const path = require('path');
-        
-        const code = await fs.readFile(params.path, 'utf-8');
-        const lines = code.split('\\n');
-        
-        const analysis = {
-          lines: lines.length,
-          functions: (code.match(/function|=>|async/g) || []).length,
-          comments: (code.match(/\\/\\/|\\/\\*/g) || []).length
-        };
-        
-        return analysis;
-      `,
-      backup_tool: `
-        const fs = require('fs-extra');
-        const path = require('path');
-        
-        const timestamp = new Date().toISOString().replace(/:/g, '-');
-        const backupPath = params.destination || params.source + '.backup-' + timestamp;
-        
-        await fs.copy(params.source, backupPath);
-        return 'Backup created at: ' + backupPath;
-      `
-    };
-
-    return codeTemplates[analysis.toolName] || `
-      // Custom tool implementation
-      return 'Tool executed for: ' + params.toString();
-    `;
   }
 }

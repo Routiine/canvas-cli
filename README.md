@@ -1,216 +1,223 @@
-# canvas-cli: The Ultimate Command-Line Experience for Ollama
+# canvas-cli
 
-![Build Status](https://img.shields.io/github/actions/workflow/status/canvas-cli/canvas-cli/ci.yml)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+A multi-provider AI coding agent for the terminal. Supports interactive chat with an agentic execution loop, file editing, shell execution, semantic codebase search, and more.
+
 ![Version](https://img.shields.io/npm/v/canvas-cli.svg)
-[![NPM Downloads](https://img.shields.io/npm/dt/canvas-cli.svg)](https://www.npmjs.com/package/canvas-cli)
-[![GitHub Stars](https://img.shields.io/github/stars/canvas-cli/canvas-cli.svg)](https://github.com/canvas-cli/canvas-cli/stargazers)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-> **The fastest, most powerful, and user-friendly CLI for local AI models.** Canvas CLI revolutionizes how developers interact with Ollama models, offering unparalleled speed, advanced features, and seamless integration with your development workflow.
+## What it is
 
-![Canvas CLI Demo](assets/demo.gif)
+canvas-cli is a Node.js CLI that wraps multiple AI providers (Ollama, Claude, OpenAI, and others) into a single terminal interface. It can read and write files, run shell commands, search your codebase semantically, and iterate on tasks over a multi-step agentic loop — all from the command line.
 
-## 🚀 Why Canvas CLI?
+## Installation
 
-Canvas CLI isn't just another AI command-line tool—it's a complete reimagining of what's possible with local LLMs. Built from the ground up for performance and developer experience, it outperforms existing tools while providing features you didn't know you needed.
-
-### ⚡ Key Features
-
-- **🏎️ Blazing Fast Performance** - Up to 3x faster than alternatives with intelligent caching and streaming
-- **🤖 Multi-Model Orchestration** - Seamlessly switch between models or use multiple models in parallel
-- **📁 Context-Aware Sessions** - Automatically detects project context, VSCode workspaces, and git repositories
-- **🔧 Advanced Tool System** - 50+ built-in tools for file operations, web scraping, image processing, and more
-- **🎨 Beautiful Interactive UI** - Rich terminal interface with syntax highlighting, progress bars, and themes
-- **🔄 Smart Workflows** - Chain commands, create pipelines, and automate complex AI workflows
-- **💾 Session Management** - Save, restore, and share conversation contexts with checkpoints
-- **🌐 Multi-Modal Support** - Process images, PDFs, audio, and video alongside text
-- **🔌 Plugin Architecture** - Extend functionality with custom tools and integrations
-- **📊 Token Management** - Real-time token counting and optimization for cost control
-- **🔐 Enterprise Ready** - Secure credential management, audit logging, and compliance features
-- **🎯 Intent Detection** - Natural language command execution without memorizing syntax
-- **📝 Recipe System** - Pre-built templates and workflows for common tasks
-- **🔍 Knowledge Search** - RAG-powered semantic search across your codebase
-- **🪝 Hook System** - Customize behavior with pre/post command hooks
-- **📱 Web Interface** - Optional browser-based UI for remote access
-- **🔗 MCP Integration** - Model Context Protocol support for enhanced AI capabilities
-- **📓 Notebook Mode** - Interactive notebook interface for exploratory AI work
-- **🎙️ Voice Commands** - Control Canvas CLI with voice input (experimental)
-
-## 📦 Installation
-
-### Quick Install (Recommended)
-
-```bash
-# Using curl (Linux/macOS)
-curl -fsSL https://canvas-cli.io/install.sh | bash
-
-# Using PowerShell (Windows)
-iwr -useb https://canvas-cli.io/install.ps1 | iex
-```
-
-### Package Managers
-
-#### Homebrew (macOS/Linux)
-```bash
-brew tap canvas-cli/tap
-brew install canvas-cli
-```
-
-#### Scoop (Windows)
-```powershell
-scoop bucket add canvas-cli https://github.com/canvas-cli/scoop-bucket
-scoop install canvas-cli
-```
-
-#### NPM (Cross-platform)
 ```bash
 npm install -g canvas-cli
 ```
 
-#### Docker
-```bash
-docker pull canvascli/canvas:latest
-docker run -it canvascli/canvas
-```
+Requires Node.js 18+.
 
-## 🎯 Quick Start
-
-### Basic Usage
+## Quick Start
 
 ```bash
-# Start interactive session with default model
+# Start interactive chat (defaults to Ollama if configured)
 canvas
 
-# Use a specific model
-canvas --model llama3.2
+# Configure a provider
+canvas config
 
-# Single prompt mode
-canvas run "Explain quantum computing in simple terms"
+# Chat with a specific model
+canvas chat --model claude-3-5-sonnet-20241022
 
-# Process files
-cat document.txt | canvas run "Summarize this document"
+# AI-powered file edit with diff preview
+canvas edit src/app.ts "add input validation to the createUser function"
 
-# Execute with tools
-canvas run "Search for Python files and list their functions" --tools
+# Semantic search across the codebase
+canvas ask "where is the authentication middleware defined"
 
-# Natural language execution
-canvas do "create a new React component called UserProfile"
+# Natural language to shell command
+canvas shell "find all TypeScript files modified in the last week"
+
+# Generate and iterate tests for a file
+canvas test src/services/auth.ts
+
+# AI code review for a pull request
+canvas review-pr 42
 ```
 
-### Essential Commands
+## Supported Providers
+
+canvas-cli supports 11 providers through a unified interface:
+
+| Provider | Notes |
+|----------|-------|
+| Ollama | Local models, no API key required |
+| Anthropic (Claude) | Requires `ANTHROPIC_API_KEY` |
+| OpenAI | Requires `OPENAI_API_KEY` |
+| Google Gemini | Requires `GOOGLE_API_KEY` |
+| DeepSeek | Requires `DEEPSEEK_API_KEY` |
+| AWS Bedrock | Requires AWS credentials |
+| Azure OpenAI | Requires Azure credentials |
+| OpenRouter | Requires `OPENROUTER_API_KEY` |
+| Groq | Requires `GROQ_API_KEY` |
+| Together AI | Requires `TOGETHER_API_KEY` |
+| OpenAI-compatible | Any endpoint with `OPENAI_BASE_URL` |
+
+## Features
+
+### Interactive chat with agentic loop
+
+`canvas chat` opens an interactive session. Type naturally; the agent executes up to 20 steps per request, chaining file reads, writes, and shell commands to complete the task. A loop guard and LLM-as-judge evaluation prevent runaway execution.
+
+Slash commands available in chat:
+- `/help` — list all slash commands
+- `/clear` — clear the screen
+- `/model` — switch models mid-session
+- `/memory` — manage persistent memory
+- `/stats` — session duration, token usage, model
+- `/compact` — compress context to last 10 messages
+- `/export` — export conversation
+- `/quit` — exit
+
+### File editing
 
 ```bash
-# Session Management
-canvas session save my-work       # Save current session
-canvas session load my-work       # Restore saved session
-canvas session list              # List all saved sessions
-
-# Model Operations
-canvas list                      # List available models
-canvas pull llama3.2            # Download a model
-canvas switch codellama         # Switch active model
-
-# Workflow Automation
-canvas workflow create "code-review" # Create reusable workflow
-canvas workflow run code-review      # Execute workflow
-
-# Context Management
-canvas context add ./src            # Add directory to context
-canvas context show                # Display current context
-canvas context clear               # Clear all context
-
-# Configuration
-canvas config set theme nord        # Change UI theme
-canvas config get                 # Show all settings
-canvas doctor                     # Diagnose issues
+canvas edit <file> "<instruction>"
 ```
 
-### Advanced Examples
+Applies AI-generated patches with fuzzy fallback if exact context is missing. Shows a diff before writing and creates a snapshot for `canvas undo`.
+
+### Shell execution
+
+The shell tool runs commands with PTY support for interactive prompts (e.g., `npx create-*` scaffolders). Safety patterns block destructive commands (e.g., `rm -rf /`, `sudo rm -rf`, fork bombs, pipe-to-shell). Warning patterns flag elevated-risk operations.
+
+### Semantic codebase search
 
 ```bash
-# Multi-model orchestration
-canvas orchestrate "Research and implement a REST API" \
-  --planner=gpt4 \
-  --coder=codellama \
-  --reviewer=mixtral
+# Build the index first
+canvas index build
 
-# Image + text processing
-canvas run "What's in this image?" --attach screenshot.png
-
-# Create and execute a workflow pipeline
-canvas pipeline \
-  --step "Analyze codebase structure" \
-  --step "Generate documentation" \
-  --step "Create unit tests" \
-  --output results/
-
-# Interactive notebook mode
-canvas notebook
-
-# Web UI mode
-canvas serve --port 8080
+# Then search
+canvas ask "how does the retry logic work"
 ```
 
-## 🔥 What Makes Canvas CLI Superior?
+Uses local embeddings (stored in SQLite) for semantic search. `canvas index query <symbol>` queries the AST symbol graph.
 
-### Performance Benchmarks
+### MCP client and server
 
-| Operation | Canvas CLI | Alternative A | Alternative B |
-|-----------|-----------|---------------|---------------|
-| First Token | 120ms | 380ms | 450ms |
-| Streaming Rate | 95 tok/s | 45 tok/s | 38 tok/s |
-| Context Loading | 0.8s | 3.2s | 4.1s |
-| Tool Execution | 50ms | 200ms | 310ms |
+```bash
+canvas mcp list          # list configured MCP servers
+canvas mcp add <server>  # add a server
+canvas mcp tools         # list tools from all connected servers
+canvas mcp serve         # start canvas as an MCP server
+```
 
-### Feature Comparison
+### Persistent memory
 
-| Feature | Canvas CLI | goose-cli | ollama-cli | Others |
-|---------|------------|-----------|------------|---------|
-| Multi-model Support | ✅ Full | ⚠️ Limited | ❌ | ⚠️ |
-| Tool System | ✅ 50+ tools | ✅ 10 tools | ❌ | ⚠️ |
-| Interactive UI | ✅ Rich | ⚠️ Basic | ❌ | ❌ |
-| Session Management | ✅ | ❌ | ❌ | ❌ |
-| Workflow Automation | ✅ | ❌ | ❌ | ❌ |
-| Multi-modal | ✅ | ⚠️ | ❌ | ❌ |
-| Plugin System | ✅ | ❌ | ❌ | ⚠️ |
-| Enterprise Features | ✅ | ❌ | ❌ | ❌ |
+```bash
+canvas memory add "prefer functional patterns over classes"
+canvas memory show
+canvas memory search "functional"
+```
 
-## 🛠️ Built for Developers, by Developers
+Memory is stored in SQLite and injected into the system prompt at session start.
 
-Canvas CLI is designed with real-world development workflows in mind:
+### Background daemon
 
-- **Zero Configuration** - Works out of the box with sensible defaults
-- **IDE Integration** - VSCode, Neovim, and Emacs plugins available
-- **Git Aware** - Understands your repository structure and history
-- **Language Agnostic** - Supports all major programming languages
-- **CI/CD Ready** - Integrate into your build pipelines
-- **API First** - Full REST API for automation
+```bash
+canvas daemon start    # start commit-watcher, dependency monitor, performance monitor
+canvas daemon status   # view recent findings
+canvas daemon stop
+```
 
-## 🤝 Community & Support
+### AI test generation
 
-- 📖 [Documentation](https://docs.canvas-cli.io)
-- 💬 [Discord Community](https://discord.gg/canvas-cli)
-- 🐛 [Issue Tracker](https://github.com/canvas-cli/canvas-cli/issues)
-- 🎯 [Roadmap](https://github.com/canvas-cli/canvas-cli/projects)
-- 📝 [Blog](https://canvas-cli.io/blog)
+```bash
+canvas test src/services/payment.ts
+```
 
-## 📄 License
+Generates a test file, runs the tests, and iterates on failures up to a configurable limit.
 
-Canvas CLI is open source software licensed under the MIT License. See [LICENSE](LICENSE.md) for details.
+### AI PR review
 
-## 🌟 Star History
+```bash
+canvas review-pr 42
+```
 
-[![Star History Chart](https://api.star-history.com/svg?repos=canvas-cli/canvas-cli&type=Date)](https://star-history.com/#canvas-cli/canvas-cli&Date)
+Fetches the diff from GitHub and posts a structured review comment.
 
----
+### Skill system
 
-<p align="center">
-  Made with ❤️ by the Canvas CLI Team
-</p>
+Skills are cross-tool prompt/behavior bundles that can be installed from files and toggled on/off:
 
-<p align="center">
-  <a href="https://canvas-cli.com>Website</a> •
-  <a href="https://docs.canvas-cli.com">Docs</a> •
-  <a href="https://twitter.com/canvascli">Twitter</a> •
-  <a href="https://github.com/canvas-cli/canvas-cli">GitHub</a>
-</p>
+```bash
+canvas skills list
+canvas skills install ./my-skill.json
+canvas skills enable my-skill
+```
+
+## Commands Reference
+
+```
+canvas                   Interactive chat (default)
+canvas chat              Interactive chat
+canvas edit <f> <instr>  AI file edit with diff preview
+canvas undo <file>       Restore file from pre-edit snapshot
+canvas test <file>       Generate and iterate tests
+canvas review-pr <num>   AI PR review posted to GitHub
+canvas shell "<prompt>"  Natural language to shell command
+canvas ask "<query>"     Semantic codebase search
+canvas index build       Build AST + embedding index
+canvas index query <sym> Query symbol graph
+canvas models            List and manage AI models
+canvas config            Configure providers and settings
+canvas init              Initialize canvas in current project
+canvas mcp               MCP server management
+canvas memory            Persistent memory management
+canvas daemon            Background analysis daemon
+canvas skills            Skill system management
+canvas audit             Show audit log
+canvas watch             Watch files for AI comment triggers (// AI!)
+canvas finetune          Fine-tuning data pipeline
+canvas plugins           List installed plugins
+```
+
+## Configuration
+
+Run `canvas config` for an interactive setup wizard, or edit `~/.canvas-cli/config.json` directly.
+
+Key settings:
+
+```json
+{
+  "defaultModel": "claude-3-5-sonnet-20241022",
+  "ollamaUrl": "http://localhost:11434",
+  "tools": true,
+  "sandbox": {
+    "enabled": true
+  }
+}
+```
+
+Environment variables for provider API keys are read at startup. See `.env.example` for the full list.
+
+## Headless / scripted use
+
+```bash
+# Single prompt, no interactive session
+canvas -p "summarize the changes in the last 5 commits"
+
+# JSON output for scripting
+canvas -p "list all exported functions in src/utils.ts" --output-format json
+
+# Auto-approve all tool confirmations
+canvas -p "refactor the auth module to use async/await" --auto-approve
+```
+
+## Plugin system
+
+Drop a plugin file in `~/.canvas/plugins/` and it will be loaded automatically. Use `canvas plugins` to list what is loaded.
+
+## License
+
+MIT

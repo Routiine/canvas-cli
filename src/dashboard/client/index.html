@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Canvas CLI Dashboard</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://unpkg.com/@xterm/xterm@5/css/xterm.css" />
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://unpkg.com/@xterm/xterm@5/lib/xterm.js"></script>
+    <script src="https://unpkg.com/@xterm/addon-fit@0.10/lib/addon-fit.js"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -153,6 +156,9 @@
                         {selectedView === 'stories' && (
                             <StoryMapper stories={stories} />
                         )}
+                        {selectedView === 'terminal' && (
+                            <TerminalView />
+                        )}
                     </div>
                 </div>
             );
@@ -181,7 +187,8 @@
                 { id: 'tasks', label: 'Tasks', icon: '📋' },
                 { id: 'planning', label: 'Planning Board', icon: '📌' },
                 { id: 'workflows', label: 'Workflows', icon: '🔄' },
-                { id: 'stories', label: 'Story Map', icon: '🗺️' }
+                { id: 'stories', label: 'Story Map', icon: '🗺️' },
+                { id: 'terminal', label: 'Terminal', icon: '💻' }
             ];
 
             return (
@@ -513,6 +520,126 @@
                             </div>
                         ))}
                     </div>
+                </div>
+            );
+        }
+
+        // Terminal View Component
+        // Connects to the /terminal Socket.IO namespace and renders an xterm.js terminal.
+        // xterm and FitAddon are loaded from CDN scripts above (window.Terminal, window.FitAddon).
+        function TerminalView() {
+            const containerRef = useRef(null);
+            const termRef = useRef(null);
+            const socketRef = useRef(null);
+
+            useEffect(() => {
+                if (!containerRef.current) return;
+
+                // xterm and FitAddon are exposed as globals by the CDN bundles
+                const TerminalClass = window.Terminal;
+                const FitAddonClass = window.FitAddon ? window.FitAddon.FitAddon : null;
+
+                if (!TerminalClass) {
+                    console.error('xterm Terminal not available — check CDN scripts');
+                    return;
+                }
+
+                const term = new TerminalClass({
+                    cursorBlink: true,
+                    theme: {
+                        background: '#1a1b26',
+                        foreground: '#c0caf5',
+                        cursor: '#c0caf5',
+                        selectionBackground: '#364a82',
+                        black: '#15161e',
+                        red: '#f7768e',
+                        green: '#9ece6a',
+                        yellow: '#e0af68',
+                        blue: '#7aa2f7',
+                        magenta: '#bb9af7',
+                        cyan: '#7dcfff',
+                        white: '#a9b1d6',
+                    },
+                    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+                    fontSize: 14,
+                });
+
+                if (FitAddonClass) {
+                    const fitAddon = new FitAddonClass();
+                    term.loadAddon(fitAddon);
+                    term.open(containerRef.current);
+                    fitAddon.fit();
+                    termRef.current = { term, fitAddon };
+
+                    const handleResize = () => {
+                        fitAddon.fit();
+                    };
+                    window.addEventListener('resize', handleResize);
+                    termRef.current.removeResizeListener = () =>
+                        window.removeEventListener('resize', handleResize);
+                } else {
+                    term.open(containerRef.current);
+                    termRef.current = { term };
+                }
+
+                // Connect to /terminal Socket.IO namespace
+                const serverOrigin = window.location.origin.replace(':3002', ':3001');
+                const sock = io(serverOrigin, { path: '/socket.io', transports: ['websocket', 'polling'] });
+                sock.nsp = '/terminal';
+                // Re-connect to the terminal namespace directly
+                const termSock = io(serverOrigin + '/terminal', {
+                    transports: ['websocket', 'polling']
+                });
+                socketRef.current = termSock;
+
+                termSock.on('connect', () => {
+                    term.writeln('\x1b[32mCanvas CLI Terminal Connected\x1b[0m');
+                    term.writeln('\x1b[90mType canvas commands or press Ctrl+C to interrupt\x1b[0m');
+                    term.write('$ ');
+                });
+
+                termSock.on('output', (data) => {
+                    term.write(data);
+                });
+
+                termSock.on('disconnect', () => {
+                    term.writeln('\r\n\x1b[31mDisconnected from terminal\x1b[0m');
+                });
+
+                termSock.on('connect_error', (err) => {
+                    term.writeln('\r\n\x1b[31mConnection error: ' + err.message + '\x1b[0m');
+                });
+
+                term.onData((data) => {
+                    termSock.emit('input', data);
+                });
+
+                term.onResize(({ cols, rows }) => {
+                    termSock.emit('resize', { cols, rows });
+                });
+
+                return () => {
+                    if (termRef.current?.removeResizeListener) {
+                        termRef.current.removeResizeListener();
+                    }
+                    termSock.disconnect();
+                    term.dispose();
+                    termRef.current = null;
+                    socketRef.current = null;
+                };
+            }, []);
+
+            return (
+                <div className="terminal-view">
+                    <div className="terminal-header">
+                        <h2>Canvas CLI Terminal</h2>
+                        <span className="terminal-hint">Connected to live canvas-cli process</span>
+                    </div>
+                    <div
+                        ref={containerRef}
+                        className="terminal-container"
+                        style={{ height: '500px', background: '#1a1b26', borderRadius: '6px', padding: '4px' }}
+                    />
                 </div>
             );
         }

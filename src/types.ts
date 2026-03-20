@@ -69,6 +69,21 @@ export interface Config {
   customCommands?: Record<string, string>;
   firstRun?: boolean;
   version?: string;
+  /** Anthropic API key stored in config (prefer env var ANTHROPIC_API_KEY) */
+  anthropicApiKey?: string;
+  /** OpenAI API key stored in config (prefer env var OPENAI_API_KEY) */
+  openaiApiKey?: string;
+  /** Groq API key stored in config (prefer env var GROQ_API_KEY) */
+  groqApiKey?: string;
+  /** Whether initial setup wizard has been completed */
+  setupComplete?: boolean;
+  /** Athena AI configuration */
+  athena?: {
+    /** Remote devproject-2 Athena API URL */
+    apiUrl?: string;
+    /** Optional API key for the remote Athena endpoint */
+    apiKey?: string;
+  };
 }
 
 export interface ToolParameterDefinition {

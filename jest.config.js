@@ -5,6 +5,7 @@ export default {
   extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    '^@e2b/code-interpreter$': '<rootDir>/tests/__mocks__/@e2b/code-interpreter.ts',
   },
   transform: {
     '^.+\\.tsx?$': [
@@ -20,7 +21,8 @@ export default {
   ],
   testPathIgnorePatterns: [
     '/node_modules/',
-    '/dist/'
+    '/dist/',
+    '/.claude/'
   ],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   collectCoverageFrom: [

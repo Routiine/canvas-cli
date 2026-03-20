@@ -117,11 +117,6 @@ export class HeadlessMode extends EventEmitter {
     if (!this.options.prompt) {
       throw new Error('Prompt is required for headless mode');
     }
-    
-    if (!this.options.apiKey && !process.env.OPENAI_API_KEY) {
-      throw new Error('API key is required (use --api-key or set OPENAI_API_KEY)');
-    }
-    
     const maxRounds = this.options.maxToolRounds ?? performanceConfig.getConfig().toolLimits.maxRounds;
     if (maxRounds < 1 || maxRounds > 1000) {
       throw new Error('maxToolRounds must be between 1 and 1000');
@@ -159,12 +154,19 @@ export class HeadlessMode extends EventEmitter {
       );
       
       if (!(response as any).requiresTools) {
+        // Push the final assistant turn so callers can extract it
+        if ((response as any).response) {
+          messages.push({ role: 'assistant', content: (response as any).response });
+        }
         break;
       }
-      
+
       this.toolRounds++;
-      
-      // Add tool results to messages
+
+      // Push the assistant turn that contained the tool calls, then the tool results
+      if ((response as any).response) {
+        messages.push({ role: 'assistant', content: (response as any).response });
+      }
       messages.push(...(response as any).toolResults);
     }
     
@@ -172,20 +174,83 @@ export class HeadlessMode extends EventEmitter {
   }
 
   /**
-   * Create agent based on configuration
+   * Create agent based on available providers.
+   * Priority: Anthropic → OpenAI (or any registered provider) → Ollama HTTP fallback.
+   *
+   * When an API provider is available, responses are parsed for TOOL:/PARAMS: blocks
+   * using parseToolCalls(), each tool is executed via the ToolRegistry, and the
+   * results are returned so processPrompt() can feed them back into the next round.
    */
   private async createAgent(): Promise<any> {
-    // This would integrate with your existing agent system
-    // Placeholder for now
+    const { getUnifiedProvider } = await import('../intelligence/unified-provider.js');
+    const { parseToolCalls } = await import('../toolPrompt.js');
+    const { CommandHandler } = await import('../commands.js');
+
+    const provider = getUnifiedProvider();
+    const handler = new CommandHandler();
+    const toolRegistry = handler.getToolRegistry();
+
+    if (!provider) {
+      // Ollama fallback — generateResponseWithTools handles tool execution natively
+      return {
+        processMessages: async (messages: any[]) => {
+          const { generateResponseWithTools } = await import('../ollama/response-generator.js');
+          const userMsg = [...messages].reverse().find((m: any) => m.role === 'user');
+          const result = await generateResponseWithTools(
+            userMsg?.content || this.options.prompt,
+            this.options.model || 'llama3.2',
+            handler as any,
+            true // execution mode
+          );
+          return { requiresTools: false, toolResults: [], response: result };
+        },
+      };
+    }
+
+    // API provider path: call provider, parse tool calls, execute them, return results
     return {
       processMessages: async (messages: any[]) => {
-        // Simulate agent processing
-        return {
-          requiresTools: false,
-          toolResults: [],
-          response: 'Processed in headless mode'
-        };
-      }
+        const response = await provider.complete(messages, {
+          model: this.options.model || provider.getDefaultModel(),
+          stream: false,
+        });
+
+        // Parse any tool calls from the response text
+        const toolCalls = parseToolCalls(response);
+
+        if (toolCalls.length === 0) {
+          // No tools needed — print the response and signal done
+          if (this.options.outputFormat !== 'json') {
+            process.stdout.write(response + '\n');
+          }
+          return { requiresTools: false, toolResults: [], response };
+        }
+
+        // Execute each tool call and collect results
+        const toolResults: any[] = [];
+        for (const toolCall of toolCalls) {
+          try {
+            const result = await toolRegistry.execute(toolCall.name, toolCall.parameters);
+            toolResults.push({
+              role: 'tool',
+              content: typeof result === 'string' ? result : JSON.stringify(result),
+              tool_call_id: toolCall.name,
+            });
+            if (this.options.verbose) {
+              console.error(`[tool] ${toolCall.name}: ${String(result).slice(0, 100)}`);
+            }
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            toolResults.push({
+              role: 'tool',
+              content: `Error: ${message}`,
+              tool_call_id: toolCall.name,
+            });
+          }
+        }
+
+        return { requiresTools: true, toolResults, response };
+      },
     };
   }
 

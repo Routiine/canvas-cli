@@ -2,9 +2,14 @@ import { io } from 'socket.io-client'
 
 export default defineNuxtPlugin(() => {
   const config = useRuntimeConfig()
-  
-  // Create socket connection
-  const socket = io(config.public.socketUrl || 'http://localhost:3001', {
+
+  // Socket.IO is served by the same Nuxt/Nitro server.
+  // Use an explicit URL only when SOCKET_URL env var is set (e.g. production
+  // deploys where the socket server is on a different host). Otherwise connect
+  // to the current origin so this works on any port.
+  const socketUrl = config.public.socketUrl || undefined
+
+  const socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
     reconnection: true,
     reconnectionAttempts: 5,

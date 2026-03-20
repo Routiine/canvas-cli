@@ -6,6 +6,8 @@
  *
  * `canvas ask "query"` embeds the query and returns the most relevant
  * file chunks with context for the AI to reason about.
+ *
+ * Vector storage uses sqlite-vec for native KNN search — no O(n) JS loop.
  */
 
 import path from 'path';
@@ -21,11 +23,30 @@ const CHUNK_OVERLAP = 10; // overlap lines between chunks
 // ─── DB setup ─────────────────────────────────────────────────────────────────
 
 let _db: Database.Database | null = null;
+let _vecEnabled = false;
 
 function getDb(): Database.Database {
   if (!_db) {
     _db = new Database(DB_PATH);
     _db.pragma('journal_mode = WAL');
+
+    // Attempt to load sqlite-vec extension for native KNN search.
+    // Falls back gracefully to the JS cosine-similarity path if unavailable.
+    try {
+      // Dynamic require is intentional: sqlite-vec is an optional native addon.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const sqliteVec = require('sqlite-vec') as { load: (db: Database.Database) => void };
+      sqliteVec.load(_db);
+      _vecEnabled = true;
+    } catch (err) {
+      console.warn(
+        chalk.yellow('sqlite-vec unavailable — falling back to in-memory cosine similarity.'),
+        err instanceof Error ? err.message : String(err)
+      );
+      _vecEnabled = false;
+    }
+
+    // Metadata table — always present.
     _db.exec(`
       CREATE TABLE IF NOT EXISTS file_embeddings (
         id INTEGER PRIMARY KEY,
@@ -38,6 +59,14 @@ function getDb(): Database.Database {
       );
       CREATE INDEX IF NOT EXISTS idx_embeddings_file ON file_embeddings(file_path);
     `);
+
+    // Vector index — only when sqlite-vec loaded successfully.
+    if (_vecEnabled) {
+      _db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS vec_index
+        USING vec0(rowid INTEGER PRIMARY KEY, embedding FLOAT[768]);
+      `);
+    }
   }
   return _db;
 }
@@ -112,7 +141,7 @@ async function getEmbeddingFn(): Promise<EmbeddingFn | null> {
   }
 }
 
-// ─── Vector math ──────────────────────────────────────────────────────────────
+// ─── Vector math (fallback path only) ────────────────────────────────────────
 
 function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   let dot = 0, normA = 0, normB = 0;
@@ -157,7 +186,18 @@ export async function embedFiles(opts: EmbedFilesOptions): Promise<void> {
   }
 
   const db = getDb();
-  const upsert = db.prepare(`
+
+  const upsertMeta = db.prepare(`
+    INSERT INTO file_embeddings (file_path, chunk_index, chunk_text, vector, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(file_path, chunk_index) DO UPDATE SET
+      chunk_text = excluded.chunk_text,
+      vector = excluded.vector,
+      updated_at = excluded.updated_at
+    RETURNING id
+  `);
+
+  const upsertMetaNoReturn = db.prepare(`
     INSERT INTO file_embeddings (file_path, chunk_index, chunk_text, vector, updated_at)
     VALUES (?, ?, ?, ?, ?)
     ON CONFLICT(file_path, chunk_index) DO UPDATE SET
@@ -165,6 +205,14 @@ export async function embedFiles(opts: EmbedFilesOptions): Promise<void> {
       vector = excluded.vector,
       updated_at = excluded.updated_at
   `);
+
+  const upsertVec = _vecEnabled
+    ? db.prepare(`INSERT OR REPLACE INTO vec_index(rowid, embedding) VALUES (?, ?)`)
+    : null;
+
+  const getRowId = db.prepare(
+    `SELECT id FROM file_embeddings WHERE file_path = ? AND chunk_index = ?`
+  );
 
   let processed = 0;
   const total = opts.files.length;
@@ -175,22 +223,41 @@ export async function embedFiles(opts: EmbedFilesOptions): Promise<void> {
       const content = await fs.readFile(absFile, 'utf-8');
       const chunks = chunkFile(relPath, content);
 
-      const insertMany = db.transaction(() => {
+      // Placeholder rows so the file is tracked even before embedding completes.
+      const insertPlaceholders = db.transaction(() => {
         for (const chunk of chunks) {
-          // Store a placeholder — we'll do async embedding below
-          upsert.run(relPath, chunk.chunkIndex, chunk.text, Buffer.alloc(0), Date.now());
+          upsertMetaNoReturn.run(relPath, chunk.chunkIndex, chunk.text, Buffer.alloc(0), Date.now());
         }
       });
-      insertMany();
+      insertPlaceholders();
 
-      // Now embed each chunk
+      // Embed each chunk and persist the vector.
       for (const chunk of chunks) {
         try {
           const vector = await embed(`${relPath}\n\n${chunk.text}`);
           const buf = Buffer.from(vector.buffer);
-          upsert.run(relPath, chunk.chunkIndex, chunk.text, buf, Date.now());
+
+          if (upsertVec) {
+            // With sqlite-vec: upsert metadata then insert into the vector index.
+            const insertResult = upsertMeta.get(
+              relPath, chunk.chunkIndex, chunk.text, buf, Date.now()
+            ) as { id: number } | undefined;
+
+            // RETURNING supplies the id on INSERT; on UPDATE we fall back to SELECT.
+            const rowId = insertResult?.id ??
+              (getRowId.get(relPath, chunk.chunkIndex) as { id: number } | undefined)?.id;
+
+            if (rowId !== undefined) {
+              // sqlite-vec accepts a JSON array string for float[] columns.
+              const jsonVec = JSON.stringify(Array.from(vector));
+              upsertVec.run(rowId, jsonVec);
+            }
+          } else {
+            // Fallback: store raw buffer in the BLOB column.
+            upsertMetaNoReturn.run(relPath, chunk.chunkIndex, chunk.text, buf, Date.now());
+          }
         } catch {
-          // skip failed chunks
+          // Skip failed chunks — partial indexes are fine.
         }
       }
 
@@ -199,7 +266,7 @@ export async function embedFiles(opts: EmbedFilesOptions): Promise<void> {
         process.stdout.write(`\r  Embedded ${processed}/${total} files...`);
       }
     } catch {
-      // skip unreadable files
+      // Skip unreadable files.
     }
   }
 
@@ -210,7 +277,10 @@ export async function embedFiles(opts: EmbedFilesOptions): Promise<void> {
 
 /**
  * Search for relevant code chunks matching `query`.
- * Returns top-k results sorted by cosine similarity.
+ * Returns top-k results sorted by relevance.
+ *
+ * When sqlite-vec is available: native KNN query (O(log n)).
+ * Fallback: full-table cosine similarity scan (O(n) in JS).
  */
 export async function semanticSearch(
   query: string,
@@ -226,17 +296,56 @@ export async function semanticSearch(
   const queryVec = await embed(query);
   const db = getDb();
 
-  // Load all embeddings — for large codebases, could use FAISS; fine for most repos
+  if (_vecEnabled) {
+    // ── Native KNN path ──────────────────────────────────────────────────────
+    const jsonVec = JSON.stringify(Array.from(queryVec));
+
+    const rows = db.prepare(`
+      SELECT f.file_path, f.chunk_index, f.chunk_text, v.distance
+      FROM vec_index v
+      JOIN file_embeddings f ON f.id = v.rowid
+      WHERE v.embedding MATCH ?
+        AND k = ?
+      ORDER BY v.distance
+    `).all(jsonVec, topK) as Array<{
+      file_path: string;
+      chunk_index: number;
+      chunk_text: string;
+      distance: number;
+    }>;
+
+    if (rows.length === 0) {
+      throw new Error('Semantic index is empty. Run: canvas index build');
+    }
+
+    return rows.map(row => {
+      const lines = row.chunk_text.split('\n');
+      return {
+        filePath: row.file_path,
+        chunkIndex: row.chunk_index,
+        // sqlite-vec returns L2 distance; convert to a 0–1 similarity score.
+        score: 1 / (1 + row.distance),
+        text: row.chunk_text,
+        startLine: 1,
+        endLine: lines.length
+      };
+    });
+  }
+
+  // ── Fallback: full-table JS cosine similarity ────────────────────────────
   const rows = db.prepare(`
     SELECT file_path, chunk_index, chunk_text, vector
     FROM file_embeddings
     WHERE length(vector) > 0
-  `).all() as Array<{ file_path: string; chunk_index: number; chunk_text: string; vector: Buffer }>;
+  `).all() as Array<{
+    file_path: string;
+    chunk_index: number;
+    chunk_text: string;
+    vector: Buffer;
+  }>;
 
   if (rows.length === 0) {
-    throw new Error(
-      'Semantic index is empty. Run: canvas index build'
-    );
+    throw new Error('Semantic index is empty. Run: canvas index build');
   }
 
   const scored = rows.map(row => {
@@ -262,7 +371,11 @@ export async function semanticSearch(
  */
 export function getEmbeddingStats(): { files: number; chunks: number } {
   const db = getDb();
-  const files = (db.prepare('SELECT COUNT(DISTINCT file_path) as c FROM file_embeddings').get() as { c: number }).c;
-  const chunks = (db.prepare('SELECT COUNT(*) as c FROM file_embeddings WHERE length(vector) > 0').get() as { c: number }).c;
+  const files = (
+    db.prepare('SELECT COUNT(DISTINCT file_path) as c FROM file_embeddings').get() as { c: number }
+  ).c;
+  const chunks = (
+    db.prepare('SELECT COUNT(*) as c FROM file_embeddings WHERE length(vector) > 0').get() as { c: number }
+  ).c;
   return { files, chunks };
 }

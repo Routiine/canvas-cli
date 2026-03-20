@@ -46,6 +46,12 @@ export {
   resetAutonomousOrchestrator
 } from './autonomous-orchestrator.js';
 
+export {
+  buildAgentGraph,
+  runAutonomousGraph,
+} from './state-graph.js';
+export type { RunAgentOptions, AgentStateType } from './state-graph.js';
+
 // Re-export embeddings
 export {
   HybridEmbeddingService,

@@ -1,7 +1,11 @@
 /**
  * Repo Map
  * Generates a compact symbol map of the codebase for inclusion in AI prompts.
- * Uses the existing AST walker / graph storage to extract file→symbol mappings.
+ * Uses the existing AST walker / graph storage to extract file->symbol mappings.
+ *
+ * Ranking strategy (aider-inspired reference density):
+ *   score = (symbolCount * 2) + (importedByCount * 5)
+ * Files matched by the optional `query` parameter receive a 3x multiplier.
  */
 
 import fs from 'fs-extra';
@@ -19,6 +23,8 @@ export interface RepoMapOptions {
   includeGlob?: string[];
   excludeGlob?: string[];
   maxOutputChars?: number;
+  /** When provided, files whose paths or symbols contain this string get a 3x score boost */
+  query?: string;
 }
 
 const DEFAULT_EXCLUDES = [
@@ -28,22 +34,44 @@ const DEFAULT_EXCLUDES = [
 
 /**
  * Generate a compact repo map string suitable for system prompts.
+ * Files are ranked by reference density: files imported by many others score higher.
  */
 export async function generateRepoMap(options: RepoMapOptions = {}): Promise<string> {
   const root = options.root || process.cwd();
   const maxFiles = options.maxFiles || 200;
   const maxChars = options.maxOutputChars || 8000;
+  const query = options.query;
 
   const entries = await scanDirectory(root, root, DEFAULT_EXCLUDES, maxFiles);
 
-  // Sort by relevance (more symbols = more important)
-  entries.sort((a, b) => b.symbols.length - a.symbols.length);
+  // Build import reference counts — files imported by many others are architectural hot-spots
+  const refCount = await buildReferenceMap(entries, root);
+
+  // Score each file: symbol density + import reference weight
+  const scored = entries.map(entry => {
+    const importedByCount = refCount.get(entry.filePath) ?? 0;
+    let score = (entry.symbols.length * 2) + (importedByCount * 5);
+
+    // Boost files matching the query (path or any symbol)
+    if (query) {
+      const q = query.toLowerCase();
+      const pathMatch = entry.filePath.toLowerCase().includes(q);
+      const symbolMatch = entry.symbols.some(s => s.toLowerCase().includes(q));
+      if (pathMatch || symbolMatch) {
+        score *= 3;
+      }
+    }
+
+    return { entry, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
 
   // Build the map string
   const lines: string[] = ['Repository Map:', ''];
   let totalChars = 0;
 
-  for (const entry of entries) {
+  for (const { entry } of scored) {
     const symbolStr = entry.symbols.length > 0
       ? ` — ${entry.symbols.slice(0, 10).join(', ')}${entry.symbols.length > 10 ? ', ...' : ''}`
       : '';
@@ -58,6 +86,55 @@ export async function generateRepoMap(options: RepoMapOptions = {}): Promise<str
   lines.push(`(${entries.length} files total)`);
 
   return lines.join('\n');
+}
+
+/**
+ * Build a map of how many times each file is imported by other files.
+ * Files with high import counts are architectural hot-spots.
+ */
+async function buildReferenceMap(entries: RepoMapEntry[], root: string): Promise<Map<string, number>> {
+  const refCount = new Map<string, number>();
+
+  // Initialize all tracked files with 0
+  for (const entry of entries) {
+    refCount.set(entry.filePath, 0);
+  }
+
+  for (const entry of entries) {
+    try {
+      const fullPath = path.join(root, entry.filePath);
+      const content = await fs.readFile(fullPath, 'utf8');
+
+      // Match ES module import statements: import ... from './path'
+      const importRegex = /from\s+['"]([^'"]+)['"]/g;
+      let match;
+      while ((match = importRegex.exec(content)) !== null) {
+        const importPath = match[1];
+        // Only resolve relative imports — package imports are not in the map
+        if (importPath.startsWith('.')) {
+          const dir = path.dirname(entry.filePath);
+          const resolved = path.normalize(path.join(dir, importPath));
+          // Try direct match with each extension, then as an index file
+          for (const ext of ['.ts', '.tsx', '.js', '.jsx']) {
+            const withExt = resolved.endsWith(ext) ? resolved : resolved + ext;
+            if (refCount.has(withExt)) {
+              refCount.set(withExt, (refCount.get(withExt) ?? 0) + 1);
+              break;
+            }
+            const asIndex = path.join(resolved, `index${ext}`);
+            if (refCount.has(asIndex)) {
+              refCount.set(asIndex, (refCount.get(asIndex) ?? 0) + 1);
+              break;
+            }
+          }
+        }
+      }
+    } catch {
+      // Skip files we can't read
+    }
+  }
+
+  return refCount;
 }
 
 /**

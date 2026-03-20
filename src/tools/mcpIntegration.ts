@@ -199,19 +199,119 @@ export class MCPServerClient extends EventEmitter {
   }
 
   /**
-   * Connect using HTTP transport
+   * Connect using HTTP transport (JSON-RPC over HTTP POST)
    */
   private async connectHttp(): Promise<void> {
-    // HTTP transport implementation would go here
-    throw new Error('HTTP transport not implemented yet');
+    if (!this.config.url) throw new Error(`HTTP transport requires a url for server "${this.serverName}"`);
+
+    // Override sendRequest to use HTTP instead of stdio
+    const originalSendRequest = this.sendRequest.bind(this);
+    const serverUrl = this.config.url;
+    const timeout = this.config.timeout || 30000;
+
+    (this as any).sendRequest = async (method: string, params: any): Promise<any> => {
+      const id = ++(this as any).messageId;
+      const message = { jsonrpc: '2.0', id, method, params };
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        const response = await fetch(serverUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(message),
+          signal: controller.signal
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const data = await response.json() as any;
+        if (data.error) throw new Error(data.error.message || 'Unknown JSON-RPC error');
+        return data.result;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    // Verify connection by sending initialize
+    await (this as any).sendRequest('initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: { roots: { listChanged: true }, sampling: {} },
+      clientInfo: { name: 'canvas-cli', version: '1.0.0' }
+    });
   }
 
   /**
-   * Connect using SSE transport
+   * Connect using SSE transport (Server-Sent Events)
    */
   private async connectSSE(): Promise<void> {
-    // SSE transport implementation would go here
-    throw new Error('SSE transport not implemented yet');
+    if (!this.config.url) throw new Error(`SSE transport requires a url for server "${this.serverName}"`);
+
+    const serverUrl = this.config.url;
+    const timeout = this.config.timeout || 30000;
+
+    // HTTP POST for outbound requests, SSE stream for inbound notifications
+    (this as any).sendRequest = async (method: string, params: any): Promise<any> => {
+      const id = ++(this as any).messageId;
+      const message = { jsonrpc: '2.0', id, method, params };
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        const response = await fetch(serverUrl + '/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(message),
+          signal: controller.signal
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const data = await response.json() as any;
+        if (data.error) throw new Error(data.error.message || 'Unknown JSON-RPC error');
+        return data.result;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    // Subscribe to SSE stream for server-initiated messages
+    const sseUrl = serverUrl + '/sse';
+    void (async () => {
+      try {
+        const response = await fetch(sseUrl, {
+          headers: { 'Accept': 'text/event-stream' }
+        });
+
+        if (!response.ok || !response.body) return;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const msg = JSON.parse(line.slice(6));
+                this.handleMessage(msg);
+              } catch { /* skip malformed */ }
+            }
+          }
+        }
+      } catch { /* SSE stream closed */ }
+    })();
+
+    await (this as any).sendRequest('initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: { roots: { listChanged: true }, sampling: {} },
+      clientInfo: { name: 'canvas-cli', version: '1.0.0' }
+    });
   }
 
   /**

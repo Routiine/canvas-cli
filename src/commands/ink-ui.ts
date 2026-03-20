@@ -5,6 +5,7 @@ import React from 'react';
 import DarkApp from '../ui/ink/DarkApp.js';
 import { CommandHandler } from '../commands.js';
 import { loadConfig } from '../config.js';
+import { generateResponseWithTools } from '../ollama/response-generator.js';
 
 export function registerInkUICommand(program: Command) {
   program
@@ -52,8 +53,9 @@ export function registerInkUICommand(program: Command) {
           }
           
           // Process with AI
-          // This is a placeholder - integrate with actual AI processing
-          return `Processing: "${input}"... Canvas CLI is ready to help!`;
+          const model = options.model || config.defaultModel || 'llama3.2';
+          const response = await generateResponseWithTools(input, model, commandHandler, false);
+          return response || 'Done.';
           
         } catch (error: any) {
           return `Error: ${error.message}`;

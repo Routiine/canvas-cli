@@ -196,13 +196,16 @@ describe('withTimeout', () => {
   });
 
   it('should reject on timeout', async () => {
-    const slowPromise = new Promise<string>(resolve =>
-      setTimeout(() => resolve('slow'), 5000)
-    );
+    let slowTimer: ReturnType<typeof setTimeout>;
+    const slowPromise = new Promise<string>(resolve => {
+      slowTimer = setTimeout(() => resolve('slow'), 5000);
+    });
 
     await expect(
       withTimeout(slowPromise, 50, 'test-op')
     ).rejects.toThrow('test-op timed out after 50ms');
+
+    clearTimeout(slowTimer!);
   });
 });
 

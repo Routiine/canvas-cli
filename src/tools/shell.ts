@@ -29,6 +29,16 @@ const BLOCKED_PATTERNS = [
   // Credential theft
   /cat\s+.*\/etc\/shadow/i,            // Reading shadow file
   /cat\s+.*\.ssh\/id_/i,               // Reading SSH keys
+
+  // Sudo destructive ops
+  /sudo\s+rm\s+(-rf?|--recursive)/i,    // sudo rm -rf
+  /rm\s+(-rf?|--recursive)\s+~\s*$/i,  // rm -rf ~ (home dir)
+
+  // Code execution disguised as data
+  new RegExp('eval\\s*\\(', 'i'),                                   // eval(...)
+  new RegExp('exec\\s*\\(', 'i'),                                   // exec(...)
+  /python[23]?\s+-c\s+.*os\.(system|popen)/i,                      // python -c "os.system(...)"
+  /node\s+-e\s+.*require.*child_process/i,                         // node -e with child_process
 ];
 
 /**
@@ -43,6 +53,9 @@ const WARNING_PATTERNS = [
   { pattern: /git\s+reset\s+--hard/i, message: 'Hard reset detected' },
   { pattern: /npm\s+publish/i, message: 'Publishing package detected' },
   { pattern: /docker\s+rm/i, message: 'Docker container removal detected' },
+  { pattern: /\$\(.*\)/, message: 'Command substitution detected: $(...)' },
+  { pattern: /`[^`]+`/, message: 'Backtick command substitution detected' },
+  { pattern: /\|\s*(bash|sh|zsh|fish|dash)\b/i, message: 'Piping to shell detected' },
 ];
 
 /**
@@ -174,6 +187,16 @@ export class ShellCommandTool extends BaseTool {
   }
 
   /**
+   * Public safety check — used by shell-command.ts to validate LLM-generated commands
+   */
+  validateCommand(command: string): { blocked: boolean; reason?: string; warning?: string } {
+    const danger = this.checkDangerousCommand(command);
+    if (danger.blocked) return danger;
+    const warnings = this.checkWarnings(command);
+    return { blocked: false, warning: warnings.length > 0 ? warnings[0] : undefined };
+  }
+
+  /**
    * Check if command is dangerous
    */
   private checkDangerousCommand(command: string): { blocked: boolean; reason?: string } {
@@ -201,24 +224,7 @@ export class ShellCommandTool extends BaseTool {
     return warnings;
   }
 
-  /**
-   * Filter sensitive environment variables
-   */
-  private getFilteredEnv(): NodeJS.ProcessEnv {
-    const env = { ...process.env };
-    for (const varName of FILTERED_ENV_VARS) {
-      if (env[varName]) {
-        env[varName] = '[FILTERED]';
-      }
-    }
-    // Also filter anything with common secret patterns
-    for (const key of Object.keys(env)) {
-      if (/secret|password|token|key|credential/i.test(key)) {
-        env[key] = '[FILTERED]';
-      }
-    }
-    return env;
-  }
+  // getFilteredEnv is the module-level function defined above
 
   /**
    * Validate working directory
@@ -280,8 +286,10 @@ export class ShellCommandTool extends BaseTool {
     const matchesInteractive = forceInteractive.test(params.command);
     const actuallyInteractive = interactive && matchesInteractive;
 
-    // Debug: show what mode we're using
-    console.log(chalk.dim(`   [interactive=${interactive}, matches=${matchesInteractive}, using=${actuallyInteractive ? 'PTY' : 'spawn'}]`));
+    // Verbose debug (only when CANVAS_DEBUG env var is set)
+    if (process.env.CANVAS_DEBUG) {
+      console.log(chalk.dim(`   [interactive=${interactive}, matches=${matchesInteractive}, using=${actuallyInteractive ? 'PTY' : 'spawn'}]`));
+    }
 
     // For interactive commands, use PTY to auto-complete prompts with defaults
     // User can type to override - input is forwarded directly to PTY
@@ -305,7 +313,7 @@ export class ShellCommandTool extends BaseTool {
             rows: rows,
             cwd: params.cwd || process.cwd(),
             env: {
-              ...(safety.filterEnv ? this.getFilteredEnv() : process.env),
+              ...(safety.filterEnv ? getFilteredEnv() : process.env),
               TERM: 'xterm-256color'
             } as { [key: string]: string }
           });
@@ -406,7 +414,7 @@ export class ShellCommandTool extends BaseTool {
     return new Promise((resolve, reject) => {
       const child = spawn(shell, shellArgs, {
         cwd: params.cwd || process.cwd(),
-        env: safety.filterEnv ? this.getFilteredEnv() : process.env,
+        env: safety.filterEnv ? getFilteredEnv() : process.env,
         stdio: ['pipe', 'pipe', 'pipe']
       });
 

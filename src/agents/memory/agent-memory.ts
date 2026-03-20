@@ -10,6 +10,7 @@ import os from 'os';
 import chalk from 'chalk';
 import { z } from 'zod';
 import crypto from 'crypto';
+import { getMem0Adapter, type Mem0Memory } from './mem0-adapter.js';
 
 // Memory Entry Schema
 export const MemoryEntrySchema = z.object({
@@ -130,11 +131,24 @@ export class AgentMemory extends EventEmitter {
   async initialize(): Promise<void> {
     await fs.ensureDir(path.dirname(this.memoryPath));
     await this.load();
-    
+
     if (this.config.autoSave) {
       this.startAutoSave();
     }
-    
+
+    // Load cross-session memories from mem0 and inject the top entries into
+    // working memory as persistent context.  Non-blocking: failures are
+    // swallowed so a missing or unreachable mem0 never prevents startup.
+    getMem0Adapter()
+      .getAllMemories({ agentId: this.agentId })
+      .then(memories => {
+        const top = memories.slice(0, 20);
+        if (top.length > 0) {
+          this.workingMemory.currentContext.set('mem0:persistent', top.map(m => m.memory));
+        }
+      })
+      .catch(console.warn);
+
     this.emit('initialized', { agentId: this.agentId });
   }
   
@@ -441,9 +455,42 @@ export class AgentMemory extends EventEmitter {
   }
 
   /**
+   * Sync recent conversation entries to mem0 for cross-session persistence.
+   * Extracts memorable facts from the provided messages and stores them in
+   * mem0 (cloud or local fallback). Non-blocking — failures are logged, not thrown.
+   *
+   * Call this after saving a batch of conversation entries.
+   */
+  syncToMem0(messages: Array<{ role: string; content: string }>): void {
+    getMem0Adapter()
+      .addMemory(messages, {
+        agentId: this.agentId,
+        sessionId: this.workingMemory.activeSession,
+      })
+      .catch(console.warn);
+  }
+
+  /**
+   * Search mem0 for memories relevant to a query.
+   * Returns an array of past memory strings to inject into the agent's context.
+   * Falls back to empty array on error so callers are never blocked.
+   */
+  async recallFromMem0(query: string, limit: number = 10): Promise<Mem0Memory[]> {
+    try {
+      return await getMem0Adapter().searchMemory(query, {
+        agentId: this.agentId,
+        limit,
+      });
+    } catch (err) {
+      console.warn('[AgentMemory] recallFromMem0 failed:', err);
+      return [];
+    }
+  }
+
+  /**
    * Private helper methods
    */
-  
+
   private createEmptyStore(): MemoryStore {
     return {
       agentId: this.agentId,

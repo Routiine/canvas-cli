@@ -3,7 +3,12 @@ import chalk from 'chalk';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { loadConfig } from '../config.js';
+import { loadConfig, saveConfig } from '../config.js';
+
+// Session-level last AI response — set by response-generator, read by /copy
+let _lastOutput = '';
+export function setLastOutput(text: string): void { _lastOutput = text; }
+export function getLastOutput(): string { return _lastOutput; }
 
 // Get version from package.json
 const __filename = fileURLToPath(import.meta.url);
@@ -36,131 +41,57 @@ export interface CanvasCommand {
  */
 export const helpCommand: CanvasCommand = {
   name: 'help',
-  description: 'Show detailed help information and system status',
+  description: 'Show available CLI commands and chat slash commands',
   aliases: ['h'],
-  action: async (options, program) => {
-    console.log(chalk.cyan.bold(`\n🎨 Canvas CLI v${packageJson.version}`));
-    console.log(chalk.gray('The ultimate AI-powered command line interface\n'));
-    
-    console.log(chalk.yellow.bold('📋 Available Commands:'));
-    
-    const commandGroups = [
-      {
-        title: '🤖 AI & Model Management',
-        commands: [
-          '/orchestrator - Intelligent model selection system',
-          '/orchestrator auto <text> - Auto-select best model and respond',
-          '/orchestrator analyze - Analyze content for optimal model',
-          '/orchestrator benchmark - Performance test all models',
-          '/model list - List available Ollama models',
-          '/model switch <name> - Switch to different AI model'
-        ]
-      },
-      {
-        title: '🎯 Planning & Execution',
-        commands: [
-          '/plan create <name> - Create execution plan with git tree',
-          '/plan add <type> <path> - Add task to plan',
-          '/plan execute - Execute plan with parallel processing',
-          '/plan status - Show plan progress'
-        ]
-      },
-      {
-        title: '🧠 Sentient Intelligence',
-        commands: [
-          '/sentient analyze - Comprehensive codebase analysis',
-          '/sentient optimize - AI-powered code optimization',
-          '/sentient ship - Deployment readiness check',
-          '/sentient audit - Security and quality audit'
-        ]
-      },
-      {
-        title: '⚡ Workflow Automation',
-        commands: [
-          '/workflow run dev - Full development pipeline',
-          '/workflow run deploy - Deployment pipeline',
-          '/workflow create <name> - Create custom workflow',
-          '/workflow list - List available workflows'
-        ]
-      },
-      {
-        title: '💾 Memory & Context',
-        commands: [
-          '/memory add <text> - Add to AI memory',
-          '/memory show - Display memory contents',
-          '/memory refresh - Reload memory from files',
-          '/memory search <query> - Search memory'
-        ]
-      },
-      {
-        title: '🔧 MCP Integration',
-        commands: [
-          '/mcp status - Show MCP server status',
-          '/mcp discover - Discover available servers',
-          '/mcp tools - List MCP tools',
-          '/mcp add <server> - Add MCP server'
-        ]
-      },
-      {
-        title: '🗂️ File Operations',
-        commands: [
-          '/read <path> - Read file content',
-          '/write <path> - Write file content',
-          '/edit <path> - Smart file editing',
-          '/glob <pattern> - Find files by pattern'
-        ]
-      },
-      {
-        title: '💬 Chat & Session',
-        commands: [
-          '/textbox - Open advanced text input box',
-          '/text - Quick access to text box',
-          '/chat save <tag> - Save conversation',
-          '/chat resume <tag> - Resume saved chat',
-          '/chat list - List saved chats',
-          '/clear - Clear screen'
-        ]
-      },
-      {
-        title: '⚙️ System & Settings',
-        commands: [
-          '/settings - Open settings editor',
-          '/theme <name> - Change visual theme',
-          '/stats - Show session statistics',
-          '/about - System information'
-        ]
-      }
+  action: async () => {
+    console.log(chalk.cyan.bold(`\nCanvas CLI v${packageJson.version}\n`));
+    console.log(chalk.yellow.bold('CLI Commands (run from terminal):'));
+    const cliCommands = [
+      ['canvas',              'Start interactive AI chat (default)'],
+      ['canvas chat',         'Interactive AI chat session'],
+      ['canvas shell "<p>"',  'Natural language to shell command'],
+      ['canvas ask "<q>"',    'Semantic codebase search'],
+      ['canvas edit <f> <i>', 'AI file edit with diff preview'],
+      ['canvas undo <file>',  'Restore file from pre-edit snapshot'],
+      ['canvas test <file>',  'Generate and iterate tests'],
+      ['canvas review-pr <n>','AI PR review posted to GitHub'],
+      ['canvas models',       'List and manage AI models'],
+      ['canvas config',       'Interactive configuration wizard'],
+      ['canvas init',         'Initialize canvas in current project'],
+      ['canvas memory',       'Persistent memory management'],
+      ['canvas mcp',          'MCP server management'],
+      ['canvas skills',       'Skill system (list, install, enable)'],
+      ['canvas daemon',       'Background analysis daemon'],
+      ['canvas watch',        'Watch files for // AI! triggers'],
+      ['canvas audit',        'Show audit log'],
+      ['canvas recipe',       'Recipe marketplace'],
+      ['canvas index',        'Build and query codebase index'],
+      ['canvas plugins',      'List installed plugins'],
     ];
+    const col = 26;
+    cliCommands.forEach(([cmd, desc]) => {
+      console.log(chalk.yellow(`  ${cmd.padEnd(col)}`), chalk.gray(desc));
+    });
 
-    for (const group of commandGroups) {
-      console.log(chalk.cyan.bold(`\n${group.title}:`));
-      group.commands.forEach(cmd => {
-        console.log(chalk.gray(`  ${cmd}`));
-      });
-    }
+    console.log(chalk.cyan.bold('\nChat Slash Commands (inside canvas chat):'));
+    const slashCommands = [
+      ['/help',              'Show this help'],
+      ['/clear',             'Clear the screen'],
+      ['/model [name]',      'Switch AI model'],
+      ['/memory',            'Memory management'],
+      ['/stats',             'Session stats (tokens, duration)'],
+      ['/compact',           'Compress context to last 10 messages'],
+      ['/export',            'Export conversation'],
+      ['/copy',              'Copy last AI response to clipboard'],
+      ['/theme [name]',      'Change visual theme'],
+      ['/about',             'System information'],
+      ['/quit',              'Exit canvas'],
+    ];
+    slashCommands.forEach(([cmd, desc]) => {
+      console.log(chalk.cyan(`  ${cmd.padEnd(col)}`), chalk.gray(desc));
+    });
 
-    console.log(chalk.green.bold('\n🚀 Canvas CLI Features:'));
-    console.log(chalk.gray('  ✅ 100% Local Operation - No API keys required'));
-    console.log(chalk.gray('  ✅ Multi-Model Support - Any Ollama model'));  
-    console.log(chalk.gray('  ✅ Parallel Task Execution - True simultaneous processing'));
-    console.log(chalk.gray('  ✅ Git Tree Planning - Visual project structure'));
-    console.log(chalk.gray('  ✅ AI-Powered Intelligence - 50+ code metrics'));
-    console.log(chalk.gray('  ✅ MCP Server Integration - Extensible tool ecosystem'));
-    console.log(chalk.gray('  ✅ Advanced Memory System - Persistent context'));
-    console.log(chalk.gray('  ✅ Workflow Automation - Multi-command orchestration'));
-
-    console.log(chalk.blue.bold('\n📖 Documentation & Support:'));
-    console.log(chalk.gray('  📄 Full docs: ./docs/'));
-    console.log(chalk.gray('  🐛 Report issues: GitHub Issues'));
-    console.log(chalk.gray('  💡 Feature requests: GitHub Discussions'));
-    
-    console.log(chalk.magenta.bold('\n🎊 Canvas CLI vs Competitors:'));
-    console.log(chalk.gray('  🥇 Complete feature set with advanced capabilities'));
-    console.log(chalk.gray('  🔐 Complete privacy - 100% local operation'));
-    console.log(chalk.gray('  💰 Free forever - No subscription costs'));
-    console.log(chalk.gray('  ⚡ Unlimited usage - No rate limits'));
-    
-    console.log(chalk.yellow('\n💡 Tip: Start with "/plan create myproject" to begin!'));
+    console.log(chalk.gray('\nRun "canvas <command> --help" for command-specific options.'));
   }
 };
 
@@ -255,7 +186,6 @@ export const statsCommand: CanvasCommand = {
       session: {
         startTime: new Date(Date.now() - process.uptime() * 1000).toISOString(),
         duration: uptimeSec,
-        commands: 'N/A (tracking not yet implemented)',
         currentModel: process.env.CANVAS_MODEL || process.env.ANTHROPIC_MODEL || 'not configured',
       },
       performance: {
@@ -264,15 +194,11 @@ export const statsCommand: CanvasCommand = {
         cpuUserMs: Math.round(process.cpuUsage().user / 1000),
         nodeVersion: process.version,
       },
-      tools: {
-        note: 'Tool usage tracking not yet implemented',
-      },
     };
 
-    console.log(chalk.green.bold('🚀 Session Overview:'));
+    console.log(chalk.green.bold('Session Overview:'));
     console.log(chalk.gray(`  Started: ${stats.session.startTime}`));
     console.log(chalk.gray(`  Duration: ${Math.floor(stats.session.duration / 60)}m ${stats.session.duration % 60}s`));
-    console.log(chalk.gray(`  Commands Executed: ${stats.session.commands}`));
     console.log(chalk.gray(`  Current Model: ${stats.session.currentModel}`));
 
     console.log(chalk.blue.bold('\n⚡ Performance Metrics:'));
@@ -280,8 +206,7 @@ export const statsCommand: CanvasCommand = {
     console.log(chalk.gray(`  CPU Time: ${stats.performance.cpuUserMs}ms`));
     console.log(chalk.gray(`  Node.js: ${stats.performance.nodeVersion}`));
 
-    console.log(chalk.yellow.bold('\n🛠️ Tools & Integration:'));
-    console.log(chalk.gray(`  Note: ${stats.tools.note}`));
+    console.log(chalk.cyan(`  Session: ${process.env.CANVAS_SESSION_CONTEXT ? 'context loaded' : 'no session context'}`));
 
     // Real health checks
     const checks = [
@@ -335,61 +260,87 @@ export const copyCommand: CanvasCommand = {
   name: 'copy',
   description: 'Copy last output to clipboard',
   action: async () => {
-    console.log(chalk.green('📋 Last output copied to clipboard!'));
-    // In actual implementation, this would copy the last AI response
+    const lastOutput = getLastOutput();
+    if (!lastOutput) {
+      console.log(chalk.dim('  nothing to copy — no previous output in this session'));
+      return;
+    }
+
+    const { platform } = process;
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    const execFileAsync = promisify(execFile);
+
+    const clipboardCmds: Record<string, { cmd: string; args: string[] }> = {
+      darwin: { cmd: 'pbcopy', args: [] },
+      win32:  { cmd: 'clip',   args: [] },
+      linux:  { cmd: 'xclip', args: ['-selection', 'clipboard'] }
+    };
+
+    const entry = clipboardCmds[platform] ?? clipboardCmds.linux;
+
+    try {
+      await execFileAsync(entry.cmd, entry.args, { input: lastOutput } as any);
+      console.log(chalk.green('  ✓ copied to clipboard'));
+    } catch {
+      if (platform === 'linux') {
+        try {
+          await execFileAsync('xsel', ['--clipboard', '--input'], { input: lastOutput } as any);
+          console.log(chalk.green('  ✓ copied to clipboard'));
+          return;
+        } catch { /* fall through */ }
+      }
+      console.log(chalk.yellow('  clipboard tool not available — install xclip or xsel'));
+    }
   }
 };
 
-/**
- * Vim mode toggle command
- */
-export const vimCommand: CanvasCommand = {
-  name: 'vim',
-  description: 'Toggle vim keybinding mode',
-  action: async () => {
-    console.log(chalk.blue('⌨️  Vim mode toggled!'));
-    console.log(chalk.gray('Vim keybindings are now active in the terminal.'));
-  }
-};
+const AVAILABLE_THEMES = [
+  { name: 'default',      description: 'Standard Canvas CLI theme' },
+  { name: 'dark',         description: 'Dark mode with blue accents' },
+  { name: 'light',        description: 'Light mode with colorful highlights' },
+  { name: 'neon',         description: 'Cyberpunk neon colors' },
+  { name: 'matrix',       description: 'Green matrix-style theme' },
+  { name: 'ocean',        description: 'Blue ocean gradient theme' },
+  { name: 'forest',       description: 'Green nature-inspired theme' },
+  { name: 'sunset',       description: 'Warm orange and red theme' },
+  { name: 'minimal',      description: 'Clean minimal theme' },
+  { name: 'professional', description: 'Business-appropriate colors' }
+] as const;
 
 /**
- * Theme switching command
+ * Theme switching command — persists selection to config
  */
 export const themeCommand: CanvasCommand = {
   name: 'theme',
   description: 'Switch Canvas CLI visual theme',
   options: [
-    {
-      flags: '-l, --list',
-      description: 'List available themes'
-    }
+    { flags: '-l, --list', description: 'List available themes' }
   ],
-  action: async (options) => {
-    if (options.list) {
-      console.log(chalk.cyan.bold('\n🎨 Available Themes:\n'));
-      
-      const themes = [
-        { name: 'default', description: 'Standard Canvas CLI theme' },
-        { name: 'dark', description: 'Dark mode with blue accents' },
-        { name: 'light', description: 'Light mode with colorful highlights' },
-        { name: 'neon', description: 'Cyberpunk neon colors' },
-        { name: 'matrix', description: 'Green matrix-style theme' },
-        { name: 'ocean', description: 'Blue ocean gradient theme' },
-        { name: 'forest', description: 'Green nature-inspired theme' },
-        { name: 'sunset', description: 'Warm orange and red theme' },
-        { name: 'minimal', description: 'Clean minimal theme' },
-        { name: 'professional', description: 'Business-appropriate colors' }
-      ];
-
-      themes.forEach(theme => {
-        console.log(chalk.yellow(`  ${theme.name.padEnd(12)} - ${theme.description}`));
+  action: async (options, cmd) => {
+    // theme name is either the first CLI arg or the first element of cmd.args
+    const themeName: string | undefined = (cmd as Command).args?.[0];
+    if (options.list || !themeName) {
+      const current = loadConfig().theme ?? 'default';
+      console.log(chalk.cyan.bold('\nAvailable Themes:\n'));
+      AVAILABLE_THEMES.forEach(t => {
+        const marker = t.name === current ? chalk.green(' (active)') : '';
+        console.log(`  ${chalk.yellow(t.name.padEnd(14))} ${t.description}${marker}`);
       });
-      
-      console.log(chalk.gray('\n💡 Use: /theme <name> to switch themes'));
-    } else {
-      console.log(chalk.green('🎨 Theme switched successfully!'));
-      console.log(chalk.gray('Theme changes will take effect immediately.'));
+      console.log(chalk.gray('\nUsage: /theme <name>'));
+      return;
     }
+
+    const valid = AVAILABLE_THEMES.find(t => t.name === themeName);
+    if (!valid) {
+      console.log(chalk.red(`Unknown theme: ${themeName}`));
+      console.log(chalk.gray(`Run /theme --list to see available themes`));
+      return;
+    }
+
+    const config = loadConfig();
+    saveConfig({ ...config, theme: themeName });
+    console.log(chalk.green(`Theme set to "${themeName}". Restart canvas to apply.`));
   }
 };
 
@@ -404,7 +355,6 @@ export const builtinCommands: CanvasCommand[] = [
   clearCommand,
   quitCommand,
   copyCommand,
-  vimCommand,
   themeCommand
 ];
 
