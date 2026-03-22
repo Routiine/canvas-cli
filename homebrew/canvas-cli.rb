@@ -1,7 +1,8 @@
 class CanvasCli < Formula
   desc "AI Coding Assistant in Your Terminal - Production-ready CLI with advanced features"
   homepage "https://github.com/canvas-cli/canvas-cli"
-  url "https://registry.npmjs.org/canvas-cli/-/canvas-cli-2.0.0.tgz"
+  url "https://registry.npmjs.org/canvas-cli/-/canvas-cli-3.0.0.tgz"
+  # SHA256: run 'shasum -a 256 canvas-cli-3.0.0.tgz' after npm publish and update this
   sha256 "PLACEHOLDER_SHA256"
   license "MIT"
 
