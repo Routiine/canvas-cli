@@ -41,7 +41,8 @@ import {
   createEditCommand,
   createUndoCommand,
   createTestCommand,
-  createReviewPRCommand
+  createReviewPRCommand,
+  createProCommand
 } from './commands/index.js';
 import { registerInkUICommand } from './commands/ink-ui.js';
 import { createInstallCommand } from './commands/install.js';
@@ -253,6 +254,9 @@ async function initializeSystems(): Promise<void> {
 function registerCoreCommands(program: Command, config: ReturnType<typeof loadConfig>): void {
   // Chat (default command)
   program.addCommand(createChatCommand());
+
+  // Pro subscription management (canvas pro subscribe|status|activate|cancel|features)
+  program.addCommand(createProCommand());
 
   // Models
   program.addCommand(createModelsCommand());
@@ -825,6 +829,7 @@ async function main(): Promise<void> {
     program.command('leaderboard').description('Model performance leaderboard');
     program.command('ab').description('A/B testing framework for models and prompts');
     program.command('pr').description('Link and manage pull requests');
+    program.command('pro').description('Manage Canvas Pro subscription ($15/month)');
     program.command('completion').description('Generate shell completion scripts (bash, zsh, fish)');
     await program.parseAsync();
     return;
@@ -836,6 +841,24 @@ async function main(): Promise<void> {
   // Load config and initialize systems
   const config = loadConfig();
   await initializeSystems();
+
+  // Check Pro status and display badge if active
+  try {
+    const { isProUser, getProStatus } = await import('./pro/index.js');
+    const proStatus = getProStatus();
+    if (proStatus.isPro) {
+      const badge = chalk.magenta.bold(' ⚡Pro');
+      // Expose for UI components to read
+      process.env.CANVAS_PRO_STATUS = 'active';
+      process.env.CANVAS_PRO_BADGE = badge;
+      console.log(chalk.magenta('  ✨ Canvas Pro active — all features unlocked'));
+    } else {
+      process.env.CANVAS_PRO_STATUS = 'free';
+    }
+  } catch {
+    // Pro module is optional at runtime — don't block startup
+    process.env.CANVAS_PRO_STATUS = 'free';
+  }
 
   // Create program
   const program = new Command();

@@ -67,6 +67,7 @@ export const helpCommand: CanvasCommand = {
       ['canvas recipe',       'Recipe marketplace'],
       ['canvas index',        'Build and query codebase index'],
       ['canvas plugins',      'List installed plugins'],
+      ['canvas pro',          'Manage Pro subscription ($15/mo)'],
     ];
     const col = 26;
     cliCommands.forEach(([cmd, desc]) => {
@@ -371,6 +372,7 @@ export { createAgentCommand } from './agent-cli.js';
 export { createEditCommand, createUndoCommand } from './edit-command.js';
 export { createTestCommand } from './test-command.js';
 export { createReviewPRCommand } from './review-pr-command.js';
+export { createProCommand } from './pro.js';
 
 /**
  * Register all builtin commands with Commander

@@ -84,6 +84,12 @@ export interface Config {
     /** Optional API key for the remote Athena endpoint */
     apiKey?: string;
   };
+  /** Canvas Pro subscription status: 'active' | 'pending' | 'inactive' | 'canceled' | 'free' */
+  pro_status?: string;
+  /** Offline license key for Canvas Pro (format: CVPRO-<hash>-<checksum>) */
+  pro_license_key?: string;
+  /** Email associated with the Canvas Pro subscription */
+  pro_email?: string;
 }
 
 export interface ToolParameterDefinition {

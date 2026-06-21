@@ -33,7 +33,11 @@ const DEFAULT_CONFIG: Config = {
     shellCommands: true,
     webSearch: true,
     webFetch: true
-  }
+  },
+  // Canvas Pro tier
+  pro_status: 'free',
+  pro_license_key: undefined,
+  pro_email: undefined
 };
 
 /**
@@ -134,6 +138,11 @@ function validateConfig(userConfig: any): Config {
     if (userConfig.tools && typeof userConfig.tools === 'object') {
       config.tools = { ...DEFAULT_CONFIG.tools, ...userConfig.tools };
     }
+
+    // Canvas Pro tier fields
+    if (typeof userConfig.pro_status === 'string') config.pro_status = userConfig.pro_status;
+    if (typeof userConfig.pro_license_key === 'string') config.pro_license_key = userConfig.pro_license_key;
+    if (typeof userConfig.pro_email === 'string') config.pro_email = userConfig.pro_email;
   }
 
   return config;
